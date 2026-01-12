@@ -1,0 +1,3293 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAR Ground Subsidence Monitoring Dashboard</title>
+    
+    <!-- Tailwind CSS -->
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        'risk-blue': '#2563eb',
+                        'risk-cyan': '#06b6d4',
+                        'risk-yellow': '#eab308',
+                        'risk-orange': '#f97316',
+                        'risk-red': '#dc2626',
+                    }
+                }
+            }
+        }
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Leaflet Draw CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+    
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Leaflet Draw JS -->
+    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+    
+    <!-- Plotly JS -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    
+    <!-- D3.js -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    
+    <!-- SheetJS (xlsx.js) for reading Excel files -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    
+    <style>
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+        
+        /* Dark mode color bar - blue to yellow to red */
+        .color-bar {
+            width: 30px;
+            height: 200px;
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            border-radius: 8px;
+            position: relative;
+            background: linear-gradient(to top, 
+                rgb(37, 99, 235) 0%,      /* risk-blue (min) */
+                rgb(146, 177, 245) 25%,   /* light blue */
+                rgb(255, 255, 255) 50%,   /* white (0mm) */
+                rgb(234, 179, 8) 75%,     /* risk-yellow */
+                rgb(220, 38, 38) 100%);   /* risk-red (max) */
+        }
+        
+        .color-labels {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 200px;
+            margin-left: 12px;
+            font-size: 10px;
+            font-weight: 300;
+        }
+        
+        .leaflet-control-color-map {
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(8px);
+            padding: 16px;
+            border-radius: 12px;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+        }
+        
+        .dark .leaflet-control-color-map {
+            background: rgba(30, 41, 59, 0.9);
+        }
+        
+        .leaflet-control-time-slider {
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(8px);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+            min-width: 320px;
+        }
+        
+        .dark .leaflet-control-time-slider {
+            background: rgba(30, 41, 59, 0.9);
+        }
+        
+        .time-slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 8px;
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+            background: rgba(148, 163, 184, 0.2);
+        }
+        
+        .time-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #06b6d4;
+            cursor: pointer;
+            border: 2px solid rgba(30, 41, 59, 0.8);
+            transition: all 0.2s;
+        }
+        
+        .time-slider::-webkit-slider-thumb:hover {
+            background: #0891b2;
+            transform: scale(1.1);
+        }
+        
+        .time-slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #06b6d4;
+            cursor: pointer;
+            border: 2px solid rgba(30, 41, 59, 0.8);
+            transition: all 0.2s;
+        }
+        
+        .time-slider::-moz-range-thumb:hover {
+            background: #0891b2;
+            transform: scale(1.1);
+        }
+        
+        .selected-info {
+            min-height: 200px;
+        }
+        
+        .selected-id-item {
+            padding: 12px;
+            margin: 8px 0;
+            background: rgba(51, 65, 85, 0.4);
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+        
+        .selected-id-item:hover {
+            background: rgba(51, 65, 85, 0.6);
+            border-color: rgba(148, 163, 184, 0.3);
+        }
+        
+        .selected-id-item:hover .remove-id-btn {
+            opacity: 1 !important;
+            pointer-events: auto !important;
+        }
+        
+        .selected-id-item:hover .selected-point-circle {
+            opacity: 1;
+            filter: brightness(1.2);
+        }
+        
+        .selected-id-item:hover .selected-point-id {
+            color: #f1f5f9 !important;
+            font-weight: 400 !important;
+        }
+        
+        .dark .selected-id-item {
+            background: rgba(51, 65, 85, 0.5);
+        }
+        
+        .dark .selected-id-item:hover {
+            background: rgba(51, 65, 85, 0.7);
+        }
+        
+        .remove-id-btn {
+            background: none;
+            border: none;
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: all 0.2s;
+        }
+        
+        .remove-id-btn:hover svg {
+            stroke: #cbd5e1;
+            transform: scale(1.1);
+        }
+        
+        .tab-button {
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        
+        .tab-button.active {
+            color: #f1f5f9;
+            background: rgba(51, 65, 85, 0.4);
+            border-bottom: 2px solid #06b6d4;
+        }
+        
+        .dark .tab-button.active {
+            background: rgba(51, 65, 85, 0.6);
+        }
+        
+        .tab-content {
+            min-height: 200px;
+        }
+        
+        /* Leaflet popup dark mode */
+        .leaflet-popup-content-wrapper {
+            background: rgba(30, 41, 59, 0.95);
+            backdrop-filter: blur(8px);
+            color: #f1f5f9;
+            border-radius: 8px;
+        }
+        
+        .leaflet-popup-tip {
+            background: rgba(30, 41, 59, 0.95);
+        }
+        
+        /* CanvasMarkerLayer is the canvas element itself (not a wrapper),
+           so it must receive pointer events for hover/click to work. */
+        .leaflet-canvas-layer {
+            pointer-events: auto;
+            cursor: grab; /* JS switches to pointer/crosshair as needed */
+        }
+        
+        /* Allow Leaflet Draw to work */
+        .leaflet-draw-toolbar {
+            pointer-events: auto;
+            z-index: 1000;
+        }
+        
+        .leaflet-draw-actions {
+            pointer-events: auto;
+            z-index: 1000;
+        }
+        
+        /* Ensure Leaflet Draw layers are above canvas */
+        .leaflet-draw-toolbar-top {
+            z-index: 1000;
+        }
+        
+        .leaflet-draw-toolbar-bottom {
+            z-index: 1000;
+        }
+        
+        .leaflet-control-layer-control {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+        }
+        
+        .layer-btn.active {
+            background: rgba(51, 65, 85, 0.8) !important;
+            border-color: rgba(6, 182, 212, 0.5) !important;
+            color: #06b6d4 !important;
+        }
+        
+        /* Ranking icon styles */
+        .ranking-icon {
+            background: transparent !important;
+            border: none !important;
+            pointer-events: auto !important;
+            cursor: pointer;
+        }
+        
+        .ranking-icon div {
+            pointer-events: auto !important;
+        }
+        
+        /* Ranking popup styles */
+        .ranking-popup .leaflet-popup-content-wrapper {
+            background: transparent;
+            box-shadow: none;
+            padding: 0;
+        }
+        
+        .ranking-popup .leaflet-popup-content {
+            margin: 0;
+        }
+        
+        .ranking-popup .leaflet-popup-tip {
+            background: rgba(51, 65, 85, 0.95);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+        }
+        
+        /* Ranking circle background with glossy effect */
+        .ranking-circle-bg {
+            transition: all 0.3s ease;
+            backdrop-filter: blur(2px);
+        }
+        
+        .ranking-circle-bg:hover {
+            transform: scale(1.05);
+            box-shadow: 
+                0 6px 12px rgba(0,0,0,0.4),
+                inset 0 2px 4px rgba(255,255,255,0.3),
+                inset 0 -2px 4px rgba(0,0,0,0.15) !important;
+        }
+        
+        /* Shield face icon styles */
+        .shield-face-icon {
+            background: transparent !important;
+            border: none !important;
+            pointer-events: auto !important;
+            cursor: pointer;
+        }
+        
+        .shield-face-icon div {
+            pointer-events: auto !important;
+        }
+        
+        /* Shield face circle background with glossy effect (same as ranking icon) */
+        .shield-face-circle-bg {
+            transition: all 0.3s ease;
+            backdrop-filter: blur(2px);
+        }
+        
+        .shield-face-circle-bg:hover {
+            transform: scale(1.1);
+            box-shadow: 
+                0 6px 12px rgba(0,0,0,0.4),
+                inset 0 2px 4px rgba(255,255,255,0.3),
+                inset 0 -2px 4px rgba(0,0,0,0.15) !important;
+        }
+        
+        .shield-face-icon:hover .shield-face-circle-bg {
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+<body class="bg-slate-900 dark:bg-slate-900 text-slate-100 min-h-screen transition-colors duration-200">
+    <!-- Header -->
+    <header class="bg-slate-800/50 dark:bg-slate-800/50 backdrop-blur-sm border-b border-slate-700/50 px-8 py-6">
+        <div class="container mx-auto flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-light text-slate-100 tracking-tight">SAR Ground Subsidence Monitoring</h1>
+                <p class="text-sm text-slate-400 mt-2 font-light">Real-time Displacement Monitoring System</p>
+            </div>
+            <div class="flex items-center gap-6">
+                <!-- User Name -->
+                <div class="text-sm text-slate-300 font-light">
+                    <span class="text-slate-400">User:</span> 
+                    <span id="current-user" class="ml-2">Admin</span>
+                </div>
+                <!-- Dark/Light Mode Toggle -->
+                <button 
+                    id="theme-toggle" 
+                    class="p-2 rounded-lg bg-slate-700/50 hover:bg-slate-700 text-slate-300 hover:text-slate-100 transition-colors duration-200"
+                    aria-label="Toggle dark mode"
+                >
+                    <svg id="theme-icon-light" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                    </svg>
+                    <svg id="theme-icon-dark" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </header>
+    
+    <!-- Main Content -->
+    <div class="flex flex-col h-screen">
+        <!-- Top: Map and Selected Points -->
+        <div class="flex flex-[0_0_65%] overflow-hidden">
+            <!-- Left: Map -->
+            <div class="flex-1 p-8">
+                <div class="bg-slate-800/30 dark:bg-slate-800/30 rounded-xl h-full">
+                    <div id="map" class="rounded-xl h-full"></div>
+                </div>
+            </div>
+            
+            <!-- Right: Selected Points -->
+            <div class="w-96 flex flex-col p-8">
+                <div class="bg-slate-800/30 dark:bg-slate-800/30 rounded-xl h-full flex flex-col backdrop-blur-sm">
+                    <div class="px-6 pt-6 pb-4">
+                        <h2 class="text-lg font-light text-slate-200 tracking-tight mb-4">Selected Points</h2>
+                    </div>
+                    <div class="px-6 pb-6 flex-1 overflow-hidden flex flex-col">
+                        <div id="selected-id-list-panel" class="selected-info flex-1 overflow-y-auto">
+                            <p class="text-sm text-slate-400 font-light">Click circles on the map to select points</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Bottom: Chart and Point Details -->
+        <div class="flex flex-[0_0_35%] overflow-hidden border-t border-slate-700/50">
+            <!-- Left: Time Series Chart -->
+            <div class="flex-1 p-8">
+                <div class="bg-slate-800/30 dark:bg-slate-800/30 backdrop-blur-sm rounded-xl h-full flex flex-col">
+                    <div class="px-6 pt-6 pb-4">
+                        <h2 class="text-lg font-light text-slate-200 tracking-tight">Time Series Displacement Chart</h2>
+                    </div>
+                    <div class="px-6 pb-6 flex-1 overflow-hidden">
+                        <div id="time-series-chart" style="height: 100%;"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Right: Point Details -->
+            <div class="w-96 p-8">
+                <div class="bg-slate-800/30 dark:bg-slate-800/30 backdrop-blur-sm rounded-xl h-full flex flex-col">
+                    <div class="px-6 pt-6 pb-4">
+                        <h2 class="text-lg font-light text-slate-200 tracking-tight">Point Details</h2>
+                    </div>
+                    <div class="px-6 pb-6 flex-1 overflow-y-auto">
+                        <div id="hover-point-details" class="text-sm text-slate-300 font-light">
+                            <p class="text-slate-400 font-light">Hover over a point on the map to see details</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Dark/Light mode toggle
+        function initThemeToggle() {
+            const themeToggle = document.getElementById('theme-toggle');
+            const themeIconLight = document.getElementById('theme-icon-light');
+            const themeIconDark = document.getElementById('theme-icon-dark');
+            const html = document.documentElement;
+            
+            // Check for saved theme preference or default to dark
+            const currentTheme = localStorage.getItem('theme') || 'dark';
+            if (currentTheme === 'light') {
+                html.classList.remove('dark');
+                themeIconLight.classList.remove('hidden');
+                themeIconDark.classList.add('hidden');
+            } else {
+                html.classList.add('dark');
+                themeIconLight.classList.add('hidden');
+                themeIconDark.classList.remove('hidden');
+            }
+            
+            themeToggle.addEventListener('click', () => {
+                const isDark = html.classList.contains('dark');
+                if (isDark) {
+                    html.classList.remove('dark');
+                    localStorage.setItem('theme', 'light');
+                    themeIconLight.classList.remove('hidden');
+                    themeIconDark.classList.add('hidden');
+                } else {
+                    html.classList.add('dark');
+                    localStorage.setItem('theme', 'dark');
+                    themeIconLight.classList.add('hidden');
+                    themeIconDark.classList.remove('hidden');
+                }
+            });
+        }
+        
+        // Global variables
+        let map;
+        let markers = [];
+        let data = [];
+        let dates = [];
+        let currentTimeIndex = 0;
+        let selectedPoint = null;
+        let circles = [];
+        let minDisplacement = 0;
+        let maxDisplacement = 0;
+        let globalMinDisplacement = 0; // Min across all time periods and all points
+        let globalMaxDisplacement = 0; // Max across all time periods and all points
+        let selectedIds = []; // Array to store selected point IDs
+        let rectangleDrawer = null; // Leaflet Draw rectangle drawer instance
+        let drawnRectangles = []; // Array to store drawn rectangles
+        let drawnItems; // FeatureGroup for drawn rectangles
+        let canvasLayer = null; // Canvas layer for rendering markers
+        let hoveredPointIndex = null; // Currently hovered point index
+        let selectedMarkers = []; // Markers for selected points (overlay on canvas)
+        let baseLayers = {}; // Base layer objects
+        let currentBaseLayer = null; // Current base layer
+        let isDrawingRectangle = false; // True while Leaflet Draw rectangle tool is active
+        let lastSelectedPointId = null; // Persisted selection for details/chart display
+        let rankingMarkers = []; // Markers for top/bottom displacement rankings
+        let shieldFaceData = []; // Shield face data from CSV
+        let shieldFaceMarkers = []; // Markers for shield face icons (up and down)
+        
+        // Calculate min/max displacement across all time periods and all points
+        function calculateGlobalDisplacementRange() {
+            let min = Infinity;
+            let max = -Infinity;
+            
+            data.forEach(point => {
+                dates.forEach(date => {
+                    const disp = parseFloat(point[date] || 0);
+                    if (!isNaN(disp)) {
+                        min = Math.min(min, disp);
+                        max = Math.max(max, disp);
+                    }
+                });
+            });
+            
+            globalMinDisplacement = min === Infinity ? -3 : min;
+            globalMaxDisplacement = max === -Infinity ? 3 : max;
+            
+            // Set initial display range to global range
+            minDisplacement = globalMinDisplacement;
+            maxDisplacement = globalMaxDisplacement;
+            
+            // Update color map labels
+            updateColorMapLabels();
+        }
+        
+        // Calculate min/max displacement for current time (for display purposes only)
+        function calculateDisplacementRange() {
+            const currentDate = dates[currentTimeIndex];
+            let min = Infinity;
+            let max = -Infinity;
+            
+            data.forEach(point => {
+                const disp = parseFloat(point[currentDate] || 0);
+                if (!isNaN(disp)) {
+                    min = Math.min(min, disp);
+                    max = Math.max(max, disp);
+                }
+            });
+            
+            // Update current range for display (but keep global range for color map)
+            minDisplacement = min === Infinity ? globalMinDisplacement : min;
+            maxDisplacement = max === -Infinity ? globalMaxDisplacement : max;
+        }
+        
+        // Color scale: blue (safe) → white (0mm) → yellow (warning) → red (danger)
+        // Colorblind-friendly continuous scale for subsidence risk
+        // 0mm is white
+        function getColor(value) {
+            // Normalize value to global range [0, 1]
+            const range = globalMaxDisplacement - globalMinDisplacement;
+            if (range === 0) {
+                // If all values are the same, return white if value is 0, otherwise yellow
+                return value === 0 ? 'rgb(255, 255, 255)' : '#eab308';
+            }
+            
+            const normalizedValue = (value - globalMinDisplacement) / range;
+            
+            // Find the normalized position of 0mm
+            const zeroNormalized = (0 - globalMinDisplacement) / range;
+            
+            let r, g, b;
+            
+            if (value <= 0) {
+                // Blue to White (min to 0mm)
+                if (zeroNormalized <= 0) {
+                    // 0mm is at or below minimum, return blue
+                    return 'rgb(37, 99, 235)';
+                }
+                const t = normalizedValue / zeroNormalized; // Scale to [0, 1] from min to 0
+                r = Math.round(37 + (255 - 37) * t);   // 37 → 255
+                g = Math.round(99 + (255 - 99) * t);   // 99 → 255
+                b = Math.round(235 + (255 - 235) * t); // 235 → 255
+            } else {
+                // White to Yellow to Red (0mm to max)
+                if (zeroNormalized >= 1) {
+                    // 0mm is at or above maximum, return red
+                    return 'rgb(220, 38, 38)';
+                }
+                const t = (normalizedValue - zeroNormalized) / (1 - zeroNormalized); // Scale to [0, 1] from 0 to max
+                
+                if (t <= 0.5) {
+                    // White to Yellow (0mm to mid-positive)
+                    const t2 = t * 2; // Scale to [0, 1]
+                    r = Math.round(255 + (234 - 255) * t2);  // 255 → 234
+                    g = Math.round(255 + (179 - 255) * t2);  // 255 → 179
+                    b = Math.round(255 + (8 - 255) * t2);    // 255 → 8
+                } else {
+                    // Yellow to Red (mid-positive to max)
+                    const t2 = (t - 0.5) * 2; // Scale to [0, 1]
+                    r = Math.round(234 + (220 - 234) * t2);  // 234 → 220
+                    g = Math.round(179 + (38 - 179) * t2);   // 179 → 38
+                    b = Math.round(8 + (38 - 8) * t2);       // 8 → 38
+                }
+            }
+            
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+        
+        // Update color map labels (using global min/max)
+        function updateColorMapLabels() {
+            const maxRiskLabel = document.getElementById('max-risk-label');
+            const minRiskLabel = document.getElementById('min-risk-label');
+            const midHighLabel = document.getElementById('mid-high-label');
+            const midLowLabel = document.getElementById('mid-low-label');
+            const currentRange = document.getElementById('current-range');
+            
+            const range = globalMaxDisplacement - globalMinDisplacement;
+            const midHigh = globalMinDisplacement + range * 0.75;
+            const midLow = globalMinDisplacement + range * 0.25;
+            
+            if (maxRiskLabel) {
+                maxRiskLabel.textContent = `${globalMaxDisplacement.toFixed(1)} mm`;
+            }
+            if (minRiskLabel) {
+                minRiskLabel.textContent = `${globalMinDisplacement.toFixed(1)} mm`;
+            }
+            if (midHighLabel) {
+                midHighLabel.textContent = `${midHigh.toFixed(1)} mm`;
+            }
+            if (midLowLabel) {
+                midLowLabel.textContent = `${midLow.toFixed(1)} mm`;
+            }
+            if (currentRange) {
+                currentRange.textContent = 
+                    `${globalMinDisplacement.toFixed(2)} mm ～ ${globalMaxDisplacement.toFixed(2)} mm`;
+            }
+        }
+        
+        // Add color map control to map
+        function addColorMapControl() {
+            const ColorMapControl = L.Control.extend({
+                onAdd: function(map) {
+                    const container = L.DomUtil.create('div', 'leaflet-control-color-map');
+                    container.innerHTML = `
+                        <h3 style="margin: 0 0 12px 0; font-size: 12px; font-weight: 300; color: #e2e8f0; letter-spacing: 0.5px;">Displacement Scale</h3>
+                        <div class="color-map" style="display: flex; flex-direction: column; align-items: center; padding: 8px;">
+                            <div style="display: flex; align-items: center;">
+                                <div class="color-bar"></div>
+                                <div class="color-labels">
+                                    <span id="max-risk-label" style="color: #dc2626; font-weight: 300; font-size: 9px;">-</span>
+                                    <span id="mid-high-label" style="color: #94a3b8; font-size: 8px; font-weight: 300;">-</span>
+                                    <span id="zero-label" style="color: #cbd5e1; font-weight: 300; font-size: 8px;">0 mm</span>
+                                    <span id="mid-low-label" style="color: #94a3b8; font-size: 8px; font-weight: 300;">-</span>
+                                    <span id="min-risk-label" style="color: #2563eb; font-weight: 300; font-size: 9px;">-</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 12px; font-size: 9px; color: #94a3b8; font-weight: 300;">
+                            <div id="current-range" style="text-align: center;">Range: -</div>
+                        </div>
+                    `;
+                    
+                    L.DomEvent.disableClickPropagation(container);
+                    return container;
+                }
+            });
+            
+            new ColorMapControl({ position: 'topright' }).addTo(map);
+            updateColorMapLabels();
+        }
+        
+        // Add layer control button to map
+        function addLayerControlButton() {
+            const LayerControl = L.Control.extend({
+                onAdd: function(map) {
+                    const container = L.DomUtil.create('div', 'leaflet-control-layer-control');
+                    container.innerHTML = `
+                        <div class="bg-slate-800/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-lg border border-slate-700/50 shadow-lg p-2">
+                            <div class="flex flex-col gap-2">
+                                <button id="layer-btn-dark" class="layer-btn active px-4 py-2 rounded-md text-sm font-light text-slate-200 bg-slate-700/50 hover:bg-slate-700 transition-colors duration-200 border border-slate-600/50">
+                                    <div class="flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+                                        </svg>
+                                        <span>Dark Map</span>
+                                    </div>
+                                </button>
+                                <button id="layer-btn-satellite" class="layer-btn px-4 py-2 rounded-md text-sm font-light text-slate-200 bg-slate-700/50 hover:bg-slate-700 transition-colors duration-200 border border-slate-600/50">
+                                    <div class="flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                        </svg>
+                                        <span>Satellite</span>
+                                    </div>
+                                </button>
+                                <button id="box-select-btn" class="px-4 py-2 rounded-md text-sm font-light text-slate-200 bg-slate-700/50 hover:bg-slate-700 transition-colors duration-200 border border-slate-600/50 hover:border-cyan-500/50">
+                                    <div class="flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                            <!-- Hollow rectangle (box) -->
+                                            <rect x="4" y="6" width="12" height="12" stroke-linecap="round" stroke-linejoin="round"/>
+                                            <!-- Simple cursor (pointer) at bottom-right corner -->
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M16 18l-4-4 4-4"/>
+                                        </svg>
+                                        <span>Box Select</span>
+                                    </div>
+                                </button>
+                                <button id="fullscreen-btn" class="px-4 py-2 rounded-md text-sm font-light text-slate-200 bg-slate-700/50 hover:bg-slate-700 transition-colors duration-200 border border-slate-600/50 hover:border-cyan-500/50">
+                                    <div class="flex items-center gap-2">
+                                        <svg id="fullscreen-icon-enter" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path>
+                                        </svg>
+                                        <svg id="fullscreen-icon-exit" class="w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3"></path>
+                                        </svg>
+                                        <span>Fullscreen</span>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Add event listeners
+                    const darkBtn = container.querySelector('#layer-btn-dark');
+                    const satelliteBtn = container.querySelector('#layer-btn-satellite');
+                    const boxSelectBtn = container.querySelector('#box-select-btn');
+                    const fullscreenBtn = container.querySelector('#fullscreen-btn');
+                    const fullscreenIconEnter = container.querySelector('#fullscreen-icon-enter');
+                    const fullscreenIconExit = container.querySelector('#fullscreen-icon-exit');
+                    
+                    darkBtn.addEventListener('click', function() {
+                        if (currentBaseLayer !== baseLayers.dark) {
+                            map.removeLayer(currentBaseLayer);
+                            baseLayers.dark.addTo(map);
+                            currentBaseLayer = baseLayers.dark;
+                            
+                            // Update button states
+                            darkBtn.classList.add('active', 'bg-slate-600');
+                            satelliteBtn.classList.remove('active', 'bg-slate-600');
+                        }
+                    });
+                    
+                    satelliteBtn.addEventListener('click', function() {
+                        if (currentBaseLayer !== baseLayers.satellite) {
+                            map.removeLayer(currentBaseLayer);
+                            baseLayers.satellite.addTo(map);
+                            currentBaseLayer = baseLayers.satellite;
+                            
+                            // Update button states
+                            satelliteBtn.classList.add('active', 'bg-slate-600');
+                            darkBtn.classList.remove('active', 'bg-slate-600');
+                        }
+                    });
+                    
+                    // Box select button will be set up after initializeDrawControl is called
+                    // Store reference for later setup
+                    window.boxSelectBtn = boxSelectBtn;
+                    
+                    // Fullscreen button event listener
+                    fullscreenBtn.addEventListener('click', function() {
+                        if (!document.fullscreenElement && 
+                            !document.webkitFullscreenElement && 
+                            !document.msFullscreenElement) {
+                            // Enter fullscreen - use the map container
+                            const mapContainer = document.getElementById('map').parentElement.parentElement;
+                            if (mapContainer.requestFullscreen) {
+                                mapContainer.requestFullscreen();
+                            } else if (mapContainer.webkitRequestFullscreen) {
+                                mapContainer.webkitRequestFullscreen();
+                            } else if (mapContainer.msRequestFullscreen) {
+                                mapContainer.msRequestFullscreen();
+                            }
+                        } else {
+                            // Exit fullscreen
+                            if (document.exitFullscreen) {
+                                document.exitFullscreen();
+                            } else if (document.webkitExitFullscreen) {
+                                document.webkitExitFullscreen();
+                            } else if (document.msExitFullscreen) {
+                                document.msExitFullscreen();
+                            }
+                        }
+                    });
+                    
+                    // Update fullscreen icon and resize map based on fullscreen state
+                    const updateFullscreenIcon = () => {
+                        const isFullscreen = document.fullscreenElement || 
+                                           document.webkitFullscreenElement || 
+                                           document.msFullscreenElement;
+                        if (isFullscreen) {
+                            fullscreenIconEnter.classList.add('hidden');
+                            fullscreenIconExit.classList.remove('hidden');
+                        } else {
+                            fullscreenIconEnter.classList.remove('hidden');
+                            fullscreenIconExit.classList.add('hidden');
+                        }
+                        // Resize map after fullscreen change
+                        setTimeout(() => {
+                            if (map) {
+                                map.invalidateSize();
+                            }
+                        }, 100);
+                    };
+                    
+                    // Listen for fullscreen changes
+                    document.addEventListener('fullscreenchange', updateFullscreenIcon);
+                    document.addEventListener('webkitfullscreenchange', updateFullscreenIcon);
+                    document.addEventListener('msfullscreenchange', updateFullscreenIcon);
+                    
+                    L.DomEvent.disableClickPropagation(container);
+                    return container;
+                }
+            });
+
+            // Added before zoom control so it appears above it
+            new LayerControl({ position: 'topleft' }).addTo(map);
+        }
+
+        
+        // Add time slider control to map
+        function addTimeSliderControl() {
+            const TimeSliderControl = L.Control.extend({
+                onAdd: function(map) {
+                    const container = L.DomUtil.create('div', 'leaflet-control-time-slider');
+                    container.innerHTML = `
+                        <div style="margin-bottom: 12px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <span id="start-date" style="font-size: 9px; color: #94a3b8; font-weight: 300;">Start: -</span>
+                                <span id="current-date" style="font-size: 10px; font-weight: 300; background: rgba(234, 179, 8, 0.2); color: #eab308; padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(234, 179, 8, 0.3);">Now: -</span>
+                                <span id="end-date" style="font-size: 9px; color: #94a3b8; font-weight: 300;">End: -</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <button id="time-slider-prev" class="flex items-center justify-center w-8 h-8 rounded-md bg-slate-700/50 hover:bg-slate-600/70 text-slate-300 hover:text-white transition-all duration-200 border border-slate-600/50 hover:border-slate-500/70 focus:outline-none focus:ring-2 focus:ring-cyan-500/50" style="flex-shrink: 0;">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                                    </svg>
+                                </button>
+                                <input type="range" id="time-slider" class="time-slider" min="0" max="100" value="100" style="flex: 1;">
+                                <button id="time-slider-next" class="flex items-center justify-center w-8 h-8 rounded-md bg-slate-700/50 hover:bg-slate-600/70 text-slate-300 hover:text-white transition-all duration-200 border border-slate-600/50 hover:border-slate-500/70 focus:outline-none focus:ring-2 focus:ring-cyan-500/50" style="flex-shrink: 0;">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Style the slider thumb
+                    const style = document.createElement('style');
+                    style.textContent = `
+                        .time-slider::-webkit-slider-thumb {
+                            -webkit-appearance: none;
+                            appearance: none;
+                            width: 16px;
+                            height: 16px;
+                            border-radius: 50%;
+                            background: #3b82f6;
+                            cursor: pointer;
+                        }
+                        .time-slider::-moz-range-thumb {
+                            width: 16px;
+                            height: 16px;
+                            border-radius: 50%;
+                            background: #3b82f6;
+                            cursor: pointer;
+                            border: none;
+                        }
+                    `;
+                    document.head.appendChild(style);
+                    
+                    L.DomEvent.disableClickPropagation(container);
+                    return container;
+                }
+            });
+            
+            new TimeSliderControl({ position: 'bottomleft' }).addTo(map);
+            initializeTimeSlider();
+        }
+        
+        // Initialize Leaflet Draw control for rectangle selection
+        function initializeDrawControl() {
+            // Create a feature group to store drawn rectangles
+            drawnItems = new L.FeatureGroup();
+            map.addLayer(drawnItems);
+            
+            // Create rectangle drawer (without default UI)
+            rectangleDrawer = new L.Draw.Rectangle(map, {
+                shapeOptions: {
+                    color: '#06b6d4',
+                    fillColor: '#06b6d4',
+                    fillOpacity: 0.2,
+                    weight: 2
+                }
+            });
+
+            // Set up box select button event listener now that rectangleDrawer is initialized
+            if (window.boxSelectBtn) {
+                window.boxSelectBtn.addEventListener('click', function() {
+                    if (rectangleDrawer) {
+                        rectangleDrawer.enable();
+                        window.boxSelectBtn.classList.add('bg-cyan-600', 'border-cyan-500');
+                        window.boxSelectBtn.classList.remove('bg-slate-700/50');
+                    }
+                });
+            }
+
+            // While drawing a rectangle, don't let the marker canvas interfere
+            map.on(L.Draw.Event.DRAWSTART, function() {
+                isDrawingRectangle = true;
+                if (canvasLayer) {
+                    canvasLayer.setHoveredIndex(null);
+                }
+                map.getContainer().style.cursor = 'crosshair';
+            });
+            map.on(L.Draw.Event.DRAWSTOP, function() {
+                isDrawingRectangle = false;
+                map.getContainer().style.cursor = 'grab';
+                // Reset box select button style
+                const boxSelectBtn = document.getElementById('box-select-btn');
+                if (boxSelectBtn) {
+                    boxSelectBtn.classList.remove('bg-cyan-600', 'border-cyan-500');
+                    boxSelectBtn.classList.add('bg-slate-700/50');
+                }
+            });
+            
+            // Handle rectangle creation
+            map.on(L.Draw.Event.CREATED, function(e) {
+                const layer = e.layer;
+                const rectangle = layer;
+                drawnRectangles.push(rectangle);
+                
+                // Add rectangle to feature group
+                drawnItems.addLayer(rectangle);
+                
+                // Find all points within the rectangle
+                selectPointsInRectangle(rectangle);
+            });
+        }
+        
+        // Select all points within a drawn rectangle
+        function selectPointsInRectangle(drawnRectangle) {
+            const bounds = drawnRectangle.getBounds();
+            
+            // Collect all points within the rectangle
+            const pointsInRectangle = [];
+            data.forEach((point, index) => {
+                const pointLat = parseFloat(point.Lat_deg);
+                const pointLon = parseFloat(point.Lon_deg);
+                const pointLocation = L.latLng(pointLat, pointLon);
+                
+                // Check if point is within rectangle bounds
+                if (bounds.contains(pointLocation)) {
+                    const pointId = point.ID || `P${String(index + 1).padStart(3, '0')}`;
+                    if (!selectedIds.includes(pointId)) {
+                        // Calculate distance from rectangle center for sorting if needed
+                        const center = bounds.getCenter();
+                        const distance = center.distanceTo(pointLocation);
+                        pointsInRectangle.push({ pointId, index, distance });
+                    }
+                }
+            });
+            
+            // Check if selection exceeds 20 points
+            const currentSelectedCount = selectedIds.length;
+            const newPointsCount = pointsInRectangle.length;
+            const totalAfterSelection = currentSelectedCount + newPointsCount;
+            
+            if (totalAfterSelection > 20) {
+                const maxNewPoints = 20 - currentSelectedCount;
+                if (maxNewPoints <= 0) {
+                    alert(`Cannot select more points. Maximum of 20 points allowed. Currently selected: ${currentSelectedCount}`);
+                    // Remove the rectangle after showing warning
+                    drawnItems.removeLayer(drawnRectangle);
+                    const index = drawnRectangles.indexOf(drawnRectangle);
+                    if (index > -1) {
+                        drawnRectangles.splice(index, 1);
+                    }
+                    return;
+                }
+                
+                // Sort by distance from center and take only the closest points
+                pointsInRectangle.sort((a, b) => a.distance - b.distance);
+                const selectedPoints = pointsInRectangle.slice(0, maxNewPoints);
+                
+                alert(`Warning: ${newPointsCount} points found in the rectangle, but only ${maxNewPoints} can be selected (maximum 20 points total). Selected the ${maxNewPoints} closest points.`);
+                
+                // Add selected points
+                selectedPoints.forEach(({ pointId, index }) => {
+                    addSelectedId(pointId, index);
+                });
+            } else {
+                // Add all points if within limit
+                pointsInRectangle.forEach(({ pointId, index }) => {
+                    addSelectedId(pointId, index);
+                });
+            }
+            
+            // Remove the rectangle after selection
+            drawnItems.removeLayer(drawnRectangle);
+            const index = drawnRectangles.indexOf(drawnRectangle);
+            if (index > -1) {
+                drawnRectangles.splice(index, 1);
+            }
+        }
+        
+        // Create star shape marker for selected points using DivIcon (fixed size)
+        // fillColor: displacement color for map markers, 'white' for legend
+        function createStarMarker(lat, lon, pointId, size, fillColor = 'white') {
+            // Get time series color for this point (for border)
+            const lineColor = getTimeSeriesColorForId(pointId);
+            
+            // Create star shape using SVG (fixed size, independent of zoom level)
+            const starSize = 15; // Fixed size in pixels (slightly larger than circle)
+            const center = starSize;
+            const outerRadius = starSize;
+            const innerRadius = starSize * 0.4;
+            const points = 5;
+            
+            // Calculate star points
+            let starPoints = '';
+            for (let i = 0; i < points * 2; i++) {
+                const angle = (i * Math.PI) / points - Math.PI / 2;
+                const radius = i % 2 === 0 ? outerRadius : innerRadius;
+                const x = center + radius * Math.cos(angle);
+                const y = center + radius * Math.sin(angle);
+                starPoints += `${x},${y} `;
+            }
+            
+            const svg = `
+                <svg width="${starSize * 2}" height="${starSize * 2}" viewBox="0 0 ${starSize * 2} ${starSize * 2}">
+                    <polygon points="${starPoints.trim()}" 
+                            fill="${fillColor}" 
+                            stroke="${lineColor}" 
+                            stroke-width="2.5" 
+                            opacity="1"/>
+                </svg>
+            `;
+            
+            const icon = L.divIcon({
+                html: svg,
+                className: 'star-marker',
+                iconSize: [starSize * 2, starSize * 2],
+                iconAnchor: [starSize, starSize]
+            });
+            
+            return L.marker([lat, lon], { icon: icon });
+        }
+        
+        // Update circle appearance based on selection (for overlay markers)
+        function updateCircleAppearance(circle, pointIndex, isSelected) {
+            const point = data[pointIndex];
+            const currentDate = dates[currentTimeIndex];
+            const displacement = parseFloat(point[currentDate] || 0);
+            const fillColor = getColor(displacement);
+            const baseSize = getSize(displacement);
+            const pointId = point.ID || `P${String(pointIndex + 1).padStart(3, '0')}`;
+            
+            if (isSelected) {
+                // Make circle larger and use time series color for border
+                const selectedIndex = selectedIds.indexOf(pointId);
+                const borderColor = getTimeSeriesColor(selectedIndex);
+                const selectedSize = baseSize * 1.5; // Make selected circles 1.5x larger
+                
+                circle.setRadius(selectedSize);
+                circle.setStyle({
+                    fillColor: fillColor,
+                    color: borderColor,
+                    weight: 3,
+                    opacity: 1,
+                    fillOpacity: 0.7
+                });
+            } else {
+                // Restore to normal circle
+                circle.setRadius(baseSize);
+                circle.setStyle({
+                    fillColor: fillColor,
+                    color: '#333',
+                    weight: 1,
+                    opacity: 1,
+                    fillOpacity: 0.7
+                });
+            }
+        }
+        
+        // Add selected ID to color map
+        function addSelectedId(pointId, pointIndex) {
+            if (!selectedIds.includes(pointId)) {
+                // Check if adding this point would exceed the limit of 20
+                if (selectedIds.length >= 20) {
+                    alert(`Cannot select more points. Maximum of 20 points allowed. Currently selected: ${selectedIds.length}`);
+                    return;
+                }
+                
+                selectedIds.push(pointId);
+                lastSelectedPointId = pointId;
+                updateSelectedIdList();
+                updateTimeSeriesChartForSelectedIds();
+                // Update markers (create overlay marker for selected point)
+                updateSelectedMarkers();
+                renderPointDetails(pointId);
+            }
+        }
+        
+        // Remove selected ID from color map
+        function removeSelectedId(pointId) {
+            selectedIds = selectedIds.filter(id => id !== pointId);
+            if (lastSelectedPointId === pointId) {
+                lastSelectedPointId = selectedIds.length > 0 ? selectedIds[selectedIds.length - 1] : null;
+            }
+            updateSelectedIdList();
+            updateTimeSeriesChartForSelectedIds();
+            // Update markers (remove overlay marker)
+            updateSelectedMarkers();
+            if (lastSelectedPointId) {
+                renderPointDetails(lastSelectedPointId);
+            } else {
+                clearPointDetails(true);
+            }
+        }
+        
+        // Get color for time series chart (avoiding red and blue to prevent confusion with displacement color map)
+        function getTimeSeriesColor(index) {
+            // Colors: green, orange, purple, lime, dark orange, emerald, violet, yellow
+            const colors = ['#10b981', '#f59e0b', '#8b5cf6', '#84cc16', '#f97316', '#22c55e', '#a855f7', '#eab308'];
+            return colors[index % colors.length];
+        }
+        
+        // Get time series color for a specific point ID
+        function getTimeSeriesColorForId(pointId) {
+            const index = selectedIds.indexOf(pointId);
+            if (index === -1) return '#333';
+            return getTimeSeriesColor(index);
+        }
+        
+        // Update selected ID list display
+        function updateSelectedIdList() {
+            // Update right panel list
+            const panelContainer = document.getElementById('selected-id-list-panel');
+            if (panelContainer) {
+                if (selectedIds.length === 0) {
+                    panelContainer.innerHTML = '<p class="text-sm text-slate-400 font-light">Click circles on the map to select points</p>';
+                } else {
+                    // Add clear all button
+                    let html = `
+                        <div style="margin-bottom: 12px;">
+                            <button onclick="clearAllSelectedIds()" style="width: 100%; background: rgba(220, 38, 38, 0.2); color: #fca5a5; border: 1px solid rgba(220, 38, 38, 0.3); border-radius: 8px; padding: 10px; cursor: pointer; font-size: 11px; font-weight: 300; transition: all 0.2s;" onmouseover="this.style.background='rgba(220, 38, 38, 0.3)'; this.style.color='#fee2e2';" onmouseout="this.style.background='rgba(220, 38, 38, 0.2)'; this.style.color='#fca5a5';">Clear All</button>
+                        </div>
+                    `;
+                    
+                    html += selectedIds.map((id, index) => {
+                        const pointIndex = data.findIndex(p => p.ID === id);
+                        const point = data[pointIndex];
+                        const currentDate = dates[currentTimeIndex];
+                        const currentDisp = parseFloat(point[currentDate] || 0);
+                        // Use time series chart color for icon
+                        const lineColor = getTimeSeriesColor(index);
+                        const pointType = point.type || 'SAR';
+                        
+                        // Create circle or rectangle SVG for the prefix based on point type
+                        const iconSize = 12;
+                        const isRectangle = pointType === 'Survey';
+                        
+                        // Create SVG icon (circle for SAR, rectangle for Survey)
+                        let iconSVG;
+                        if (isRectangle) {
+                            const rectSize = iconSize - 2;
+                            const rectX = (iconSize - rectSize) / 2;
+                            const rectY = (iconSize - rectSize) / 2;
+                            iconSVG = `<rect x="${rectX}" y="${rectY}" width="${rectSize}" height="${rectSize}" 
+                                                    fill="${lineColor}" 
+                                                    stroke="${lineColor}" 
+                                                    stroke-width="2" 
+                                                    opacity="1"
+                                                    class="selected-point-circle"/>`;
+                        } else {
+                            iconSVG = `<circle cx="${iconSize/2}" cy="${iconSize/2}" r="${iconSize/2 - 1}" 
+                                                    fill="${lineColor}" 
+                                                    stroke="${lineColor}" 
+                                                    stroke-width="2" 
+                                                    opacity="1"
+                                                    class="selected-point-circle"/>`;
+                        }
+                        
+                        return `
+                            <div class="selected-id-item" 
+                                 style="padding: 12px; margin: 8px 0; background: rgba(51, 65, 85, 0.4); border-radius: 8px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s; border: 1px solid transparent;"
+                                 onmouseenter="highlightPoint('${id}')"
+                                 onmouseleave="unhighlightPoint('${id}')">
+                                <div style="display: flex; align-items: center;">
+                                    <div style="width: ${iconSize}px; height: ${iconSize}px; margin-right: 12px;">
+                                        <svg width="${iconSize}" height="${iconSize}" viewBox="0 0 ${iconSize} ${iconSize}">
+                                            ${iconSVG}
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 13px; font-weight: 300; color: #e2e8f0; letter-spacing: 0.3px;" class="selected-point-id">${id}</div>
+                                        <div style="font-size: 11px; color: #94a3b8; font-weight: 300; margin-top: 2px;">Current: ${currentDisp.toFixed(2)} mm</div>
+                                    </div>
+                                </div>
+                                <button class="remove-id-btn" onclick="removeSelectedIdFromMap('${id}'); event.stopPropagation();" style="background: none; border: none; padding: 4px 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; opacity: 0; pointer-events: none;" title="Remove">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M3 6h18"></path>
+                                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                                        <line x1="10" y1="11" x2="10" y2="17"></line>
+                                        <line x1="14" y1="11" x2="14" y2="17"></line>
+                                    </svg>
+                                </button>
+                            </div>
+                        `;
+                    }).join('');
+                    
+                    panelContainer.innerHTML = html;
+                }
+            }
+        }
+        
+        // Clear all selected IDs
+        function clearAllSelectedIds() {
+            selectedIds = [];
+            lastSelectedPointId = null;
+            updateSelectedIdList();
+            updateTimeSeriesChartForSelectedIds();
+            // Update markers (remove all overlay markers)
+            updateSelectedMarkers();
+        }
+        
+        // Global function for clear all button
+        window.clearAllSelectedIds = clearAllSelectedIds;
+        
+        // Global function for remove button
+        window.removeSelectedIdFromMap = function(pointId) {
+            removeSelectedId(pointId);
+        };
+        
+        // Tab switching function
+        function switchTab(tabName) {
+            // Hide all tab contents
+            document.getElementById('tab-content-selected-ids').classList.add('hidden');
+            document.getElementById('tab-content-selected-info').classList.add('hidden');
+            
+            // Remove active class from all tabs
+            document.getElementById('tab-selected-ids').classList.remove('active');
+            document.getElementById('tab-selected-info').classList.remove('active');
+            
+            // Show selected tab content
+            if (tabName === 'selected-ids') {
+                document.getElementById('tab-content-selected-ids').classList.remove('hidden');
+                document.getElementById('tab-selected-ids').classList.add('active');
+            } else if (tabName === 'selected-info') {
+                document.getElementById('tab-content-selected-info').classList.remove('hidden');
+                document.getElementById('tab-selected-info').classList.add('active');
+            }
+        }
+        
+        // Helper: is Leaflet circle marker
+        function isCircleMarker(marker) {
+            return marker && typeof marker.setStyle === 'function' && typeof marker.setRadius === 'function';
+        }
+        
+        // Helper: dim a marker (circle or rectangle)
+        function dimMarker(marker) {
+            if (!marker) return;
+            if (isCircleMarker(marker)) {
+                marker.setStyle({
+                    opacity: 0.3,
+                    fillOpacity: 0.3
+                });
+            } else {
+                const el = marker.getElement && marker.getElement();
+                if (el) el.style.opacity = '0.3';
+            }
+        }
+        
+        // Helper: set marker style (circle) or recreate rectangle icon
+        function setMarkerVisual(marker, fillColor, borderColor, radius, weight = 3, opacity = 1, fillOpacity = 0.7) {
+            if (!marker) return;
+            if (isCircleMarker(marker)) {
+                marker.setRadius(radius);
+                marker.setStyle({
+                    fillColor: fillColor,
+                    color: borderColor,
+                    weight: weight,
+                    opacity: opacity,
+                    fillOpacity: fillOpacity
+                });
+            } else {
+                // Rectangle marker (DivIcon) – recreate icon with given styles
+                const icon = createRectangleMarkerIcon(radius, fillColor, borderColor, weight);
+                marker.setIcon(icon);
+                const el = marker.getElement && marker.getElement();
+                if (el) {
+                    el.style.opacity = opacity;
+                }
+            }
+        }
+        
+        // Highlight point on hover
+        function highlightPoint(pointId) {
+            const pointIndex = data.findIndex(p => p.ID === pointId);
+            if (pointIndex === -1) return;
+            
+            const point = data[pointIndex];
+            const currentDate = dates[currentTimeIndex];
+            const currentDisp = parseFloat(point[currentDate] || 0);
+            const dispR = parseFloat(point.DispR_mmyr || 0);
+            const totalDisp = parseFloat(point.Disp_mm || 0);
+            
+            // Show Point Details for hovered point
+            const dataSource = point.type || 'Unknown';
+            document.getElementById('hover-point-details').innerHTML = `
+                <div class="space-y-4" style="color: #e2e8f0;">
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">ID:</span> <span style="color: #e2e8f0; letter-spacing: 0.3px;">${pointId}</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Data Source:</span> <span style="color: #e2e8f0;">${dataSource}</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Latitude:</span> <span style="color: #e2e8f0;">${point.Lat_deg}°</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Longitude:</span> <span style="color: #e2e8f0;">${point.Lon_deg}°</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Current Displacement:</span> <span style="color: ${currentDisp > 0 ? '#dc2626' : '#2563eb'}; font-weight: 300;">${currentDisp.toFixed(2)} mm</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Annual Rate:</span> <span style="color: #e2e8f0;">${dispR.toFixed(2)} mm/year</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Total Displacement:</span> <span style="color: #e2e8f0;">${totalDisp.toFixed(2)} mm</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Date:</span> <span style="color: #e2e8f0;">${formatDate(currentDate)}</span></div>
+                </div>
+            `;
+            
+            // Dim all other selected markers on map
+            selectedIds.forEach((id, idx) => {
+                const idxPointIndex = data.findIndex(p => p.ID === id);
+                if (idxPointIndex === -1 || idxPointIndex === pointIndex) return;
+                
+                if (circles[idxPointIndex]) {
+                    dimMarker(circles[idxPointIndex]);
+                }
+            });
+            
+            // Highlight current map marker
+            if (circles[pointIndex]) {
+                const marker = circles[pointIndex];
+                const latlng = marker.getLatLng();
+                const fillColor = getColor(currentDisp);
+                const baseSize = getSize(currentDisp);
+                const selectedSize = baseSize * 1.5;
+                const pointIdForMarker = point.ID || `P${String(pointIndex + 1).padStart(3, '0')}`;
+                const selectedIndex = selectedIds.indexOf(pointIdForMarker);
+                const borderColor = getTimeSeriesColor(selectedIndex === -1 ? 0 : selectedIndex);
+                
+                // Increase weight and restore opacity
+                setMarkerVisual(marker, fillColor, borderColor, selectedSize, 4, 1, 0.7);
+                
+                // Pan map to marker if it's not fully visible
+                if (latlng && !map.getBounds().contains(latlng)) {
+                    map.setView(latlng, map.getZoom(), { animate: false });
+                }
+            } else if (canvasLayer) {
+                // Highlight on canvas layer
+                canvasLayer.setHoveredIndex(pointIndex);
+                const point = data[pointIndex];
+                const lat = parseFloat(point.Lat_deg);
+                const lon = parseFloat(point.Lon_deg);
+                const latlng = L.latLng(lat, lon);
+                
+                // Pan map to point if it's not fully visible
+                if (latlng && !map.getBounds().contains(latlng)) {
+                    map.setView(latlng, map.getZoom(), { animate: false });
+                }
+            }
+            
+            // Show hover chart for this point
+            showHoverChart(pointId, pointIndex);
+            
+            // Highlight time series chart line and dim others
+            highlightChartLine(pointId);
+        }
+        
+        // Unhighlight point
+        function unhighlightPoint(pointId) {
+            const pointIndex = data.findIndex(p => p.ID === pointId);
+            if (pointIndex === -1) return;
+            
+            // Clear Point Details only if no point is selected
+            // If a point is selected, show its details instead
+            if (selectedIds.length === 0) {
+                document.getElementById('hover-point-details').innerHTML = `
+                    <p class="text-slate-400 font-light">Hover over a point on the map to see details</p>
+                `;
+            } else {
+                // Show details for the last selected point
+                if (lastSelectedPointId) {
+                    renderPointDetails(lastSelectedPointId);
+                }
+            }
+            
+            // Restore all markers to normal state
+            selectedIds.forEach((id) => {
+                const idxPointIndex = data.findIndex(p => p.ID === id);
+                if (idxPointIndex === -1) return;
+                
+                if (circles[idxPointIndex]) {
+                    const marker = circles[idxPointIndex];
+                    const point = data[idxPointIndex];
+                    const currentDate = dates[currentTimeIndex];
+                    const displacement = parseFloat(point[currentDate] || 0);
+                    const fillColor = getColor(displacement);
+                    const pointIdForMarker = point.ID || `P${String(idxPointIndex + 1).padStart(3, '0')}`;
+                    const selectedIndex = selectedIds.indexOf(pointIdForMarker);
+                    
+                    if (selectedIndex !== -1) {
+                        // Selected marker: restore to selected style (larger with colored border)
+                        const borderColor = getTimeSeriesColor(selectedIndex);
+                        const baseSize = getSize(displacement);
+                        const selectedSize = baseSize * 1.5;
+                        
+                        setMarkerVisual(marker, fillColor, borderColor, selectedSize, 3, 1, 0.7);
+                    }
+                }
+            });
+            
+            // Clear canvas layer hover state
+            if (canvasLayer) {
+                canvasLayer.setHoveredIndex(null);
+            }
+            
+            // Update chart: if selected points exist, show them; otherwise clear
+            if (selectedIds.length > 0) {
+                updateTimeSeriesChartForSelectedIds();
+            } else {
+                // Restore time series chart lines
+                unhighlightChartLine();
+                // Clear chart
+                Plotly.newPlot('time-series-chart', [], {
+                    plot_bgcolor: 'rgba(30, 41, 59, 0.3)',
+                    paper_bgcolor: 'transparent',
+                    title: { text: 'Time Series Displacement Chart', font: { size: 14, color: '#e2e8f0' } },
+                    xaxis: { 
+                        title: { text: 'Date', font: { color: '#cbd5e1' } },
+                        tickfont: { color: '#94a3b8', size: 10 },
+                        gridcolor: 'rgba(148, 163, 184, 0.2)',
+                        linecolor: 'rgba(148, 163, 184, 0.3)'
+                    },
+                    yaxis: { 
+                        title: { text: 'Displacement (mm)', font: { color: '#cbd5e1' } },
+                        tickfont: { color: '#94a3b8', size: 10 },
+                        gridcolor: 'rgba(148, 163, 184, 0.2)',
+                        linecolor: 'rgba(148, 163, 184, 0.3)'
+                    }
+                }, {responsive: true});
+            }
+        }
+        
+        // Helper function to convert hex to rgba
+        function hexToRgba(hex, alpha) {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+        
+        // Highlight chart line
+        function highlightChartLine(pointId) {
+            const chartDiv = document.getElementById('time-series-chart');
+            if (!chartDiv) return;
+            
+            const index = selectedIds.indexOf(pointId);
+            if (index === -1) return;
+            
+            // Wait for Plotly to be ready
+            if (typeof Plotly === 'undefined') return;
+            
+            // Check if chart has data - try multiple methods to access chart data
+            let hasData = false;
+            if (chartDiv._fullData && chartDiv._fullData.length > 0) {
+                hasData = true;
+            } else if (chartDiv.layout) {
+                // Chart exists but might not have _fullData yet
+                hasData = true;
+            }
+            
+            if (!hasData) return;
+            
+            // Get original colors for all traces
+            const originalColors = selectedIds.map((id, idx) => getTimeSeriesColor(idx));
+            const numTraces = selectedIds.length;
+            
+            if (numTraces === 0) return;
+            
+            // Update line width, marker size, and opacity
+            // Highlight selected line, dim others
+            const update = {};
+            const lineWidths = [];
+            const markerSizes = [];
+            const lineColors = [];
+            const markerColors = [];
+            const opacities = [];
+            
+            for (let i = 0; i < numTraces; i++) {
+                lineWidths.push(i === index ? 4 : 2);
+                markerSizes.push(i === index ? 10 : 6);
+                if (i === index) {
+                    lineColors.push(originalColors[i]);
+                    markerColors.push(originalColors[i]);
+                } else {
+                    lineColors.push(hexToRgba(originalColors[i], 0.5));
+                    markerColors.push(hexToRgba(originalColors[i], 0.5));
+                }
+                opacities.push(i === index ? 1.0 : 0.5);
+            }
+            
+            update['line.width'] = lineWidths;
+            update['marker.size'] = markerSizes;
+            update['line.color'] = lineColors;
+            update['marker.color'] = markerColors;
+            update['opacity'] = opacities;
+            
+            try {
+                Plotly.restyle(chartDiv, update);
+            } catch (e) {
+                console.error('Error highlighting chart line:', e);
+            }
+        }
+        
+        // Unhighlight chart line
+        function unhighlightChartLine() {
+            const chartDiv = document.getElementById('time-series-chart');
+            if (!chartDiv) return;
+            
+            // Check if chart has data
+            if (!chartDiv._fullData || chartDiv._fullData.length === 0) return;
+            
+            const numTraces = selectedIds.length;
+            if (numTraces === 0) return;
+            
+            // Restore original line width, marker size, colors, and opacity
+            // Get original colors from getTimeSeriesColor function
+            const originalColors = selectedIds.map((id, idx) => getTimeSeriesColor(idx));
+            
+            const update = {
+                'line.width': Array(numTraces).fill(2),
+                'marker.size': Array(numTraces).fill(6),
+                'line.color': originalColors,
+                'marker.color': originalColors,
+                'opacity': Array(numTraces).fill(1.0)
+            };
+            
+            Plotly.restyle(chartDiv, update);
+        }
+        
+        // Make functions available globally
+        window.switchTab = switchTab;
+        window.highlightPoint = highlightPoint;
+        window.unhighlightPoint = unhighlightPoint;
+        
+        // Get fixed size (not based on displacement)
+        function getSize(value) {
+            // Return fixed size regardless of displacement value
+            return 5; // Fixed radius in pixels
+        }
+        
+        // Canvas layer for high-performance marker rendering
+        const CanvasMarkerLayer = L.Layer.extend({
+            initialize: function(options) {
+                L.setOptions(this, options);
+                this._points = [];
+                this._hoveredIndex = null;
+                this._dragDisabledForHover = false;
+                this._origin = L.point(0, 0);
+            },
+            
+            onAdd: function(map) {
+                this._map = map;
+                this._initCanvas();
+                this._map.on('viewreset', this._reset, this);
+                this._map.on('moveend', this._reset, this);
+                this._map.on('zoomend', this._reset, this);
+                this._reset();
+            },
+            
+            onRemove: function(map) {
+                this._map.off('viewreset', this._reset, this);
+                this._map.off('moveend', this._reset, this);
+                this._map.off('zoomend', this._reset, this);
+                this._map.getPanes().overlayPane.removeChild(this._canvas);
+                this._map = null;
+            },
+            
+            _initCanvas: function() {
+                const canvas = this._canvas = L.DomUtil.create('canvas', 'leaflet-canvas-layer');
+                // Use overlayPane - Leaflet Draw will be on top in its own pane
+                const pane = this._map.getPanes().overlayPane;
+                pane.appendChild(canvas);
+                
+                const size = this._map.getSize();
+                canvas.width = size.x;
+                canvas.height = size.y;
+                
+                L.DomUtil.addClass(canvas, 'leaflet-zoom-animated');
+                // Set initial cursor style to grab
+                canvas.style.cursor = 'grab';
+                
+                L.DomEvent.on(canvas, 'click', this._onClick, this);
+                L.DomEvent.on(canvas, 'mousemove', this._onMouseMove, this);
+                L.DomEvent.on(canvas, 'mouseleave', this._onMouseLeave, this);
+                // Don't disable click propagation to allow map panning and Leaflet Draw
+                // Only stop propagation when clicking on a point
+            },
+            
+            _reset: function() {
+                const size = this._map.getSize();
+                // Align canvas to current view top-left in layer space
+                this._origin = this._map.containerPointToLayerPoint([0, 0]);
+                L.DomUtil.setPosition(this._canvas, this._origin);
+                
+                this._canvas.width = size.x;
+                this._canvas.height = size.y;
+                
+                // Reset cursor to grab
+                if (this._canvas) {
+                    this._canvas.style.cursor = 'grab';
+                }
+                
+                this._draw();
+            },
+            
+            setPoints: function(points) {
+                this._points = points;
+                this._draw();
+            },
+            
+            setHoveredIndex: function(index) {
+                if (this._hoveredIndex !== index) {
+                    this._hoveredIndex = index;
+                    this._draw();
+                }
+            },
+            
+            _draw: function() {
+                if (!this._map || !this._points.length) return;
+                
+                const ctx = this._canvas.getContext('2d');
+                // Clear canvas
+                ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
+                
+                // Draw only points within visible bounds
+                this._points.forEach((point, index) => {
+                    // Skip if point should be hidden (no data for current date)
+                    if (point.hidden) {
+                        return;
+                    }
+                    
+                    const lat = point.lat;
+                    const lon = point.lon;
+                    
+                    // Skip if point is selected (will be drawn as overlay marker)
+                    const pointId = point.pointData.ID || `P${String(point.index + 1).padStart(3, '0')}`;
+                    if (selectedIds.includes(pointId)) {
+                        return;
+                    }
+                    
+                    const pointXY = this._map.latLngToLayerPoint([lat, lon]);
+                    const x = pointXY.x - this._origin.x;
+                    const y = pointXY.y - this._origin.y;
+                    const radius = point.radius;
+                    const fillColor = point.fillColor;
+                    const strokeColor = point.strokeColor;
+                    const strokeWidth = point.strokeWidth;
+                    const isHovered = point.index === this._hoveredIndex;
+                    const shapeType = point.shapeType || 'circle'; // 'circle' or 'rectangle'
+                    
+                    ctx.fillStyle = fillColor;
+                    ctx.strokeStyle = isHovered ? '#eab308' : strokeColor;
+                    ctx.lineWidth = isHovered ? 3 : strokeWidth;
+                    ctx.globalAlpha = 0.7;
+                    
+                    if (shapeType === 'rectangle') {
+                        // Draw rectangle (same size as circle)
+                        const size = radius * 2; // Rectangle size equals circle diameter
+                        ctx.fillRect(x - size / 2, y - size / 2, size, size);
+                    } else {
+                        // Draw circle
+                        ctx.beginPath();
+                        ctx.arc(x, y, radius, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    
+                    // Draw border
+                    ctx.globalAlpha = 1.0;
+                    if (shapeType === 'rectangle') {
+                        const size = radius * 2;
+                        ctx.strokeRect(x - size / 2, y - size / 2, size, size);
+                    } else {
+                        ctx.beginPath();
+                        ctx.arc(x, y, radius, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+                });
+            },
+            
+            _onClick: function(e) {
+                if (isDrawingRectangle) {
+                    return;
+                }
+                
+                // Get mouse position relative to canvas
+                const rect = this._canvas.getBoundingClientRect();
+                const canvasX = e.clientX - rect.left;
+                const canvasY = e.clientY - rect.top;
+                
+                // Convert to layer point for coordinate calculation
+                const containerPoint = this._map.mouseEventToContainerPoint(e);
+                const layerPoint = this._map.containerPointToLayerPoint(containerPoint);
+                // Adjust for canvas origin
+                const canvasPoint = {
+                    x: layerPoint.x - this._origin.x,
+                    y: layerPoint.y - this._origin.y
+                };
+                
+                const point = this._findPointAt(canvasPoint);
+                if (point) {
+                    // Stop propagation only when clicking on a point
+                    L.DomEvent.stopPropagation(e);
+                    L.DomEvent.preventDefault(e);
+                    const pointId = point.pointData.ID || `P${String(point.index + 1).padStart(3, '0')}`;
+                    addSelectedId(pointId, point.index);
+                }
+                // If not clicking on a point, allow event to propagate for map panning
+            },
+            
+            _onMouseMove: function(e) {
+                if (isDrawingRectangle) {
+                    this._canvas.style.cursor = 'crosshair';
+                    return;
+                }
+                
+                // Get mouse position relative to canvas
+                const rect = this._canvas.getBoundingClientRect();
+                const canvasX = e.clientX - rect.left;
+                const canvasY = e.clientY - rect.top;
+                
+                // Convert to layer point for coordinate calculation
+                const containerPoint = this._map.mouseEventToContainerPoint(e);
+                const layerPoint = this._map.containerPointToLayerPoint(containerPoint);
+                // Adjust for canvas origin
+                const canvasPoint = {
+                    x: layerPoint.x - this._origin.x,
+                    y: layerPoint.y - this._origin.y
+                };
+                
+                const point = this._findPointAt(canvasPoint);
+                if (point) {
+                    const pointId = point.pointData.ID || `P${String(point.index + 1).padStart(3, '0')}`;
+                    
+                    // Change cursor to pointer when hovering over a point
+                    this._canvas.style.cursor = 'pointer';
+                    this._map.getContainer().style.cursor = 'pointer';
+                    
+                    if (this._hoveredIndex !== point.index) {
+                        this._hoveredIndex = point.index;
+                        hoveredPointIndex = point.index;
+                        // Use highlightPoint like selected markers do
+                        highlightPoint(pointId);
+                        this._draw();
+                    }
+                } else {
+                    // Not hovering a point: restore normal cursor to grab
+                    this._canvas.style.cursor = 'grab';
+                    this._map.getContainer().style.cursor = 'grab';
+                    
+                    if (this._hoveredIndex !== null) {
+                        const prevPointId = this._points[this._hoveredIndex].pointData.ID || `P${String(this._points[this._hoveredIndex].index + 1).padStart(3, '0')}`;
+                        this._hoveredIndex = null;
+                        hoveredPointIndex = null;
+                        // Use unhighlightPoint like selected markers do
+                        unhighlightPoint(prevPointId);
+                        this._draw();
+                    }
+                }
+            },
+            
+            _onMouseLeave: function(e) {
+                if (isDrawingRectangle) return;
+                
+                // Restore cursor when mouse leaves canvas
+                this._canvas.style.cursor = 'grab';
+                this._map.getContainer().style.cursor = 'grab';
+                
+                if (this._hoveredIndex !== null) {
+                    const prevPointId = this._points[this._hoveredIndex].pointData.ID || `P${String(this._points[this._hoveredIndex].index + 1).padStart(3, '0')}`;
+                    this._hoveredIndex = null;
+                    hoveredPointIndex = null;
+                    // Use unhighlightPoint like selected markers do
+                    unhighlightPoint(prevPointId);
+                    this._draw();
+                }
+            },
+            
+            _findPointAt: function(canvasPoint) {
+                const tolerance = 15; // pixels (increased for better click detection)
+                let closestPoint = null;
+                let minDistance = Infinity;
+                
+                this._points.forEach((point) => {
+                    const pointId = point.pointData.ID || `P${String(point.index + 1).padStart(3, '0')}`;
+                    // Skip selected points (they have overlay markers)
+                    if (selectedIds.includes(pointId)) {
+                        return;
+                    }
+                    
+                    const pointXY = this._map.latLngToLayerPoint([point.lat, point.lon]);
+                    const x = pointXY.x - this._origin.x;
+                    const y = pointXY.y - this._origin.y;
+                    
+                    // Check if point is within visible bounds
+                    if (x < -tolerance || x > this._canvas.width + tolerance ||
+                        y < -tolerance || y > this._canvas.height + tolerance) {
+                        return;
+                    }
+                    
+                    const distance = Math.sqrt(
+                        Math.pow(canvasPoint.x - x, 2) +
+                        Math.pow(canvasPoint.y - y, 2)
+                    );
+                    
+                    // Include point radius in tolerance check
+                    const pointRadius = point.radius || 5;
+                    const effectiveTolerance = tolerance + pointRadius;
+                    
+                    if (distance <= effectiveTolerance && distance < minDistance) {
+                        minDistance = distance;
+                        closestPoint = point;
+                    }
+                });
+                
+                return closestPoint;
+            }
+        });
+        
+        // Factory function for canvas marker layer
+        function canvasMarkerLayer(options) {
+            return new CanvasMarkerLayer(options);
+        }
+        
+        // Normalize date format: YYYY-MM-DD -> YYYYMMDD, YYYYMMDD -> YYYYMMDD
+        function normalizeDate(dateStr) {
+            if (!dateStr) return dateStr;
+            // If already YYYYMMDD format (8 digits), return as is
+            if (/^\d{8}$/.test(dateStr)) {
+                return dateStr;
+            }
+            // If YYYY-MM-DD format, convert to YYYYMMDD
+            if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+                return dateStr.replace(/-/g, '');
+            }
+            return dateStr;
+        }
+        
+        // Normalize date column name in CSV data object
+        function normalizeDateColumn(columnName) {
+            return normalizeDate(columnName);
+        }
+        
+        // Check if a column is a date column (YYYYMMDD or YYYY-MM-DD format)
+        function isDateColumn(columnName) {
+            return /^\d{8}$/.test(columnName) || /^\d{4}-\d{2}-\d{2}$/.test(columnName);
+        }
+        
+        // Load and parse CSV data with type assignment
+        async function loadCSVData(csvPath, dataType) {
+            try {
+                const csvData = await d3.csv(csvPath);
+                
+                if (csvData.length === 0) {
+                    return [];
+                }
+                
+                // Get all columns from the CSV
+                const allColumns = csvData.columns;
+                
+                // Create a mapping from original date columns to normalized date columns
+                const dateColumnMap = {};
+                allColumns.forEach(col => {
+                    if (isDateColumn(col)) {
+                        const normalizedKey = normalizeDateColumn(col);
+                        dateColumnMap[col] = normalizedKey;
+                    }
+                });
+                
+                // Normalize date columns and data
+                const normalizedData = csvData.map((row, index) => {
+                    const normalizedRow = {};
+                    
+                    // Copy all non-date columns as-is
+                    Object.keys(row).forEach(key => {
+                        if (!isDateColumn(key)) {
+                            normalizedRow[key] = row[key];
+                        }
+                    });
+                    
+                    // Copy date columns with normalized keys
+                    Object.keys(dateColumnMap).forEach(originalKey => {
+                        const normalizedKey = dateColumnMap[originalKey];
+                        normalizedRow[normalizedKey] = row[originalKey];
+                    });
+                    
+                    // Add type property
+                    normalizedRow.type = dataType;
+                    
+                    // Ensure each point has an ID
+                    if (!normalizedRow.ID) {
+                        normalizedRow.ID = `${dataType}-${String(index + 1).padStart(3, '0')}`;
+                    }
+                    
+                    return normalizedRow;
+                });
+                
+                return normalizedData;
+            } catch (error) {
+                console.error(`Error loading ${csvPath}:`, error);
+                return [];
+            }
+        }
+        
+        // Extract and normalize date columns from all data
+        function extractDatesFromData(allData) {
+            const dateSet = new Set();
+            
+            allData.forEach(point => {
+                Object.keys(point).forEach(key => {
+                    if (isDateColumn(key)) {
+                        const normalizedKey = normalizeDateColumn(key);
+                        dateSet.add(normalizedKey);
+                    }
+                });
+            });
+            
+            return Array.from(dateSet).sort();
+        }
+        
+        // Load and parse Excel file with multiple sheets, merge specified sheets
+        async function loadExcelData(excelPath, dataType, sheetNames = null) {
+            try {
+                // Fetch Excel file as array buffer
+                const response = await fetch(excelPath);
+                const arrayBuffer = await response.arrayBuffer();
+                
+                // Parse Excel file
+                const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                
+                // Collect data from specified sheets (or all sheets if sheetNames is null)
+                let allNormalizedData = [];
+                let globalIndex = 0;
+                
+                const sheetsToProcess = sheetNames || workbook.SheetNames;
+                
+                sheetsToProcess.forEach(sheetName => {
+                    // Check if sheet exists
+                    if (!workbook.Sheets[sheetName]) {
+                        console.warn(`Sheet "${sheetName}" not found in ${excelPath}`);
+                        return;
+                    }
+                    
+                    // Convert sheet to JSON
+                    const worksheet = workbook.Sheets[sheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                    
+                    if (jsonData.length === 0) {
+                        console.warn(`Sheet "${sheetName}" is empty`);
+                        return; // Skip empty sheets
+                    }
+                    
+                    // Get all columns from the sheet
+                    const allColumns = Object.keys(jsonData[0] || {});
+                    
+                    // Create a mapping from original date columns to normalized date columns
+                    const dateColumnMap = {};
+                    allColumns.forEach(col => {
+                        if (isDateColumn(col)) {
+                            const normalizedKey = normalizeDateColumn(col);
+                            dateColumnMap[col] = normalizedKey;
+                        }
+                    });
+                    
+                    // Normalize date columns and data for this sheet
+                    const normalizedData = jsonData.map((row, index) => {
+                        const normalizedRow = {};
+                        
+                        // Copy all non-date columns as-is
+                        Object.keys(row).forEach(key => {
+                            if (!isDateColumn(key)) {
+                                normalizedRow[key] = row[key];
+                            }
+                        });
+                        
+                        // Copy date columns with normalized keys
+                        Object.keys(dateColumnMap).forEach(originalKey => {
+                            const normalizedKey = dateColumnMap[originalKey];
+                            normalizedRow[normalizedKey] = row[originalKey];
+                        });
+                        
+                        // Add type property
+                        normalizedRow.type = dataType;
+                        
+                        // Ensure each point has an ID (use global index across all sheets)
+                        if (!normalizedRow.ID) {
+                            normalizedRow.ID = `${dataType}-${String(globalIndex + 1).padStart(3, '0')}`;
+                        }
+                        
+                        globalIndex++;
+                        return normalizedRow;
+                    });
+                    
+                    allNormalizedData = allNormalizedData.concat(normalizedData);
+                    console.log(`Loaded ${normalizedData.length} rows from sheet "${sheetName}"`);
+                });
+                
+                console.log(`Total: Loaded ${allNormalizedData.length} rows from ${sheetsToProcess.length} sheet(s) in ${excelPath}`);
+                return allNormalizedData;
+            } catch (error) {
+                console.error(`Error loading Excel file ${excelPath}:`, error);
+                throw error; // Re-throw to allow fallback handling
+            }
+        }
+        
+        // Load CSV data from external file
+        async function loadData() {
+            try {
+                // Load SAR CSV file
+                const sarData = await loadCSVData('sar-disp.csv', 'SAR');
+                
+                // Load Survey data from Excel file (HRtoSB and MB Ground Disp. sheets)
+                let surveyData = [];
+                try {
+                    surveyData = await loadExcelData('survey-disp.xlsx', 'Survey', ['HRtoSB', 'MB Ground Disp.']);
+                } catch (excelError) {
+                    console.error('Error loading Survey Excel file:', excelError);
+                    alert('Surveyデータの読み込みに失敗しました。');
+                }
+                
+                // Merge data arrays
+                data = [...sarData, ...surveyData];
+                
+                // Extract and normalize date columns from all data
+                dates = extractDatesFromData(data);
+                
+                // Initialize map center from first data point
+                if (data.length > 0) {
+                    const centerLat = parseFloat(data[0].Lat_deg);
+                    const centerLon = parseFloat(data[0].Lon_deg);
+                    
+                    // Initialize map with higher max zoom (custom zoom control order)
+                    map = L.map('map', {
+                        maxZoom: 22,
+                        zoomControl: false
+                    }).setView([centerLat, centerLon], 14);
+                    
+                    // Set default cursor to grab
+                    map.getContainer().style.cursor = 'grab';
+                    
+                    // Create base layers
+                    const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                        subdomains: 'abcd',
+                        maxZoom: 22
+                    });
+                    
+                    const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                        attribution: '&copy; <a href="https://www.esri.com/">Esri</a>',
+                        maxZoom: 22
+                    });
+                    
+                    baseLayers.dark = darkLayer;
+                    baseLayers.satellite = satelliteLayer;
+                    
+                    // Add default dark layer
+                    darkLayer.addTo(map);
+                    currentBaseLayer = darkLayer;
+                    
+                    // Calculate global displacement range (all time periods, all points)
+                    calculateGlobalDisplacementRange();
+                    
+                    // Create markers for each point
+                    createMarkers();
+                    
+                    // Add layer control button (must be before other controls)
+                    addLayerControlButton();
+                    
+                    // Add color map control to map
+                    addColorMapControl();
+                    
+                    // Add time slider control to map (this also initializes the time slider)
+                    addTimeSliderControl();
+                    
+                    // Initialize Leaflet Draw for rectangle selection
+                    initializeDrawControl();
+                    
+                    // Keep canvas markers fresh after zoom/move (prevents missing dots after returning to view)
+                    const refreshCanvas = () => updateCanvasLayerPoints();
+                    map.on('zoom zoomend move moveend', refreshCanvas);
+
+                    // Load and display CP202 GeoJSON first (to place it behind other layers)
+                    loadCP202Line();
+                    
+                    // Load and display MRT line GeoJSON
+                    loadMRTLine();
+                    
+                    // Load shield face data
+                    loadShieldFaceData();
+                    
+                    // Update map with initial displacement data after everything is initialized
+                    updateMapForTime();
+                }
+            } catch (error) {
+                console.error('Error loading data:', error);
+                alert('データの読み込みに失敗しました。');
+            }
+        }
+        
+        // Load and display MRT line GeoJSON
+        async function loadMRTLine() {
+            try {
+                const response = await fetch('Jakarta_MRT_NS_Line.geojson');
+                const geojsonData = await response.json();
+                
+                // Create GeoJSON layer with custom styling
+                const mrtLayer = L.geoJSON(geojsonData, {
+                    interactive: false, // Disable interaction to prevent blocking displacement point hover
+                    style: function(feature) {
+                        // Style based on construction status
+                        const isConstruction = feature.properties.construction === 'subway' || 
+                                              feature.properties.railway === 'construction';
+                        
+                        return {
+                            color: isConstruction ? '#ff6b00' : '#0066cc', // Orange for construction, blue for operational
+                            weight: 4,
+                            opacity: 0.8,
+                            dashArray: isConstruction ? '10, 5' : null // Dashed line for construction
+                        };
+                    },
+                    onEachFeature: function(feature, layer) {
+                        // Note: Popups are disabled when interactive: false
+                        // If popup is needed, can be enabled by setting interactive: true for specific features
+                    }
+                }).addTo(map);
+                
+            } catch (error) {
+                console.error('Error loading MRT line GeoJSON:', error);
+                // Don't show alert for GeoJSON loading failure as it's optional
+            }
+        }
+        
+        // Load and display CP202 GeoJSON (MultiPolygon)
+        async function loadCP202Line() {
+            try {
+                const response = await fetch('CP202.geojson');
+                const geojsonData = await response.json();
+                
+                // Create GeoJSON layer with custom styling for polygons
+                const cp202Layer = L.geoJSON(geojsonData, {
+                    interactive: false, // Disable interaction to prevent blocking displacement point hover
+                    style: function(feature) {
+                        // Style based on construction status (landuse: "construction")
+                        // Use contrasting colors to MRT route (orange/blue)
+                        const isConstruction = feature.properties.landuse === 'construction' ||
+                                              feature.properties.construction === 'subway' || 
+                                              feature.properties.railway === 'construction';
+                        
+                        return {
+                            color: isConstruction ? '#10b981' : '#ef4444', // Green for construction (contrast to orange), red for operational (contrast to blue)
+                            fillColor: isConstruction ? '#10b981' : '#ef4444', // Same color for fill
+                            weight: 2, // Thinner than MRT route (which is 4)
+                            opacity: 0.8,
+                            fillOpacity: 0.2, // More transparent fill to not interfere with displacement circles
+                            dashArray: isConstruction ? '10, 5' : null // Dashed line for construction
+                        };
+                    },
+                    onEachFeature: function(feature, layer) {
+                        // Note: Popups are disabled when interactive: false
+                        // If popup is needed, can be enabled by setting interactive: true for specific features
+                    }
+                });
+                
+                // Add to map and move to bottom to ensure it's behind all other layers
+                cp202Layer.addTo(map);
+                cp202Layer.bringToBack(); // Move to the back of all layers
+                
+            } catch (error) {
+                console.error('Error loading CP202 GeoJSON:', error);
+                // Don't show alert for GeoJSON loading failure as it's optional
+            }
+        }
+        
+        // Get colors from d3.js schemeCategory10
+        // Index 8: #bcbd22 (yellow), Index 9: #17becf (cyan)
+        const d3Colors = d3.schemeCategory10;
+        const shieldFaceUpColor = d3Colors[8];    // Yellow (#bcbd22)
+        const shieldFaceDownColor = d3Colors[9];  // Cyan (#17becf)
+        
+        // Create pickaxe icon (using pick.svg, no background)
+        function createPickaxeIcon(isUp = true) {
+            const iconSize = 32; // SVG icon size
+            
+            // Load pick.svg without background
+            const html = `
+                <div style="position: relative; width: ${iconSize}px; height: ${iconSize}px; display: flex; align-items: center; justify-content: center; pointer-events: auto; cursor: pointer;">
+                    <!-- Pick SVG icon (original colors from pick.svg) -->
+                    <div style="position: relative; width: ${iconSize}px; height: ${iconSize}px; pointer-events: auto; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));">
+                        <svg width="${iconSize}" height="${iconSize}" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <!-- 外枠の円 -->
+                            <circle cx="50" cy="50" r="48" fill="#4A5568" />
+                            
+                            <!-- カッターヘッドのメインデザイン -->
+                            <g id="cutter-head-main">
+                                <!-- ガイド円 -->
+                                <circle cx="50" cy="50" r="40" stroke="#2D3748" stroke-width="1.5" stroke-dasharray="4 2" />
+                                
+                                <!-- 中心軸 -->
+                                <circle cx="50" cy="50" r="10" fill="#CBD5E0" stroke="#2D3748" stroke-width="2" />
+                                
+                                <!-- カッタービット（放射状の刃） -->
+                                <!-- 垂直・水平の刃 -->
+                                <rect x="48" y="10" width="4" height="20" fill="#ECC94B" rx="1" /> <!-- 上 -->
+                                <rect x="48" y="70" width="4" height="20" fill="#ECC94B" rx="1" /> <!-- 下 -->
+                                <rect x="10" y="48" width="20" height="4" fill="#ECC94B" rx="1" /> <!-- 左 -->
+                                <rect x="70" y="48" width="20" height="4" fill="#ECC94B" rx="1" /> <!-- 右 -->
+                                
+                                <!-- 45度回転した刃 -->
+                                <rect x="48" y="10" width="4" height="20" fill="#ECC94B" rx="1" transform="rotate(45 50 50)" />
+                                <rect x="48" y="10" width="4" height="20" fill="#ECC94B" rx="1" transform="rotate(135 50 50)" />
+                                <rect x="48" y="10" width="4" height="20" fill="#ECC94B" rx="1" transform="rotate(225 50 50)" />
+                                <rect x="48" y="10" width="4" height="20" fill="#ECC94B" rx="1" transform="rotate(315 50 50)" />
+                                
+                                <!-- 小さなサブビット -->
+                                <circle cx="50" cy="25" r="2" fill="#2D3748" transform="rotate(22.5 50 50)" />
+                                <circle cx="50" cy="25" r="2" fill="#2D3748" transform="rotate(67.5 50 50)" />
+                                <circle cx="50" cy="25" r="2" fill="#2D3748" transform="rotate(112.5 50 50)" />
+                                <circle cx="50" cy="25" r="2" fill="#2D3748" transform="rotate(157.5 50 50)" />
+                                <circle cx="50" cy="25" r="2" fill="#2D3748" transform="rotate(202.5 50 50)" />
+                                <circle cx="50" cy="25" r="2" fill="#2D3748" transform="rotate(247.5 50 50)" />
+                                <circle cx="50" cy="25" r="2" fill="#2D3748" transform="rotate(292.5 50 50)" />
+                                <circle cx="50" cy="25" r="2" fill="#2D3748" transform="rotate(337.5 50 50)" />
+                            </g>
+                        </svg>
+                    </div>
+                </div>
+            `;
+            
+            return L.divIcon({
+                html: html,
+                className: 'shield-face-icon',
+                iconSize: [iconSize, iconSize],
+                iconAnchor: [iconSize / 2, iconSize / 2]
+            });
+        }
+        
+        // Load shield face CSV data
+        async function loadShieldFaceData() {
+            try {
+                const csvData = await d3.csv('sheild_face_ch_converted.csv');
+                shieldFaceData = csvData.map(row => ({
+                    date: row.date,
+                    up: {
+                        lat: row.Up_lat_deg ? parseFloat(row.Up_lat_deg) : null,
+                        lon: row.Up_lon_deg ? parseFloat(row.Up_lon_deg) : null
+                    },
+                    down: {
+                        lat: row.Down_lat_deg ? parseFloat(row.Down_lat_deg) : null,
+                        lon: row.Down_lon_deg ? parseFloat(row.Down_lon_deg) : null
+                    }
+                }));
+                
+                // Update markers for current time
+                updateShieldFaceMarkers();
+            } catch (error) {
+                console.error('Error loading shield face data:', error);
+            }
+        }
+        
+        // Find the closest past date from shield face data
+        function findClosestPastShieldFaceDate(targetDate) {
+            if (!shieldFaceData.length) return null;
+            
+            // Sort dates in descending order (most recent first)
+            const sortedData = [...shieldFaceData]
+                .filter(item => item.date && item.date <= targetDate)
+                .sort((a, b) => b.date.localeCompare(a.date));
+            
+            if (sortedData.length === 0) return null;
+            
+            return sortedData[0]; // Return the most recent past date
+        }
+        
+        // Update shield face markers based on current time
+        function updateShieldFaceMarkers() {
+            // Remove existing markers
+            shieldFaceMarkers.forEach(marker => {
+                map.removeLayer(marker);
+            });
+            shieldFaceMarkers = [];
+            
+            if (!shieldFaceData.length || !dates.length) return;
+            
+            const currentDate = dates[currentTimeIndex];
+            
+            // Find the closest past date from shield face data
+            const currentData = findClosestPastShieldFaceDate(currentDate);
+            
+            if (!currentData) return;
+            
+            // Add UP marker (pickaxe - yellow from d3 schemeCategory10)
+            if (currentData.up.lat && currentData.up.lon) {
+                const upIcon = createPickaxeIcon(true);
+                const upMarker = L.marker([currentData.up.lat, currentData.up.lon], {
+                    icon: upIcon,
+                    zIndexOffset: 500
+                }).addTo(map);
+                
+                upMarker.bindPopup(`
+                    <div style="color: #e2e8f0;">
+                        <strong>Shield Face - UP</strong><br>
+                        Date: ${formatDate(currentData.date)}<br>
+                        Latitude: ${currentData.up.lat.toFixed(6)}°<br>
+                        Longitude: ${currentData.up.lon.toFixed(6)}°
+                    </div>
+                `);
+                shieldFaceMarkers.push(upMarker);
+            }
+            
+            // Add DOWN marker (pickaxe - cyan from d3 schemeCategory10)
+            if (currentData.down.lat && currentData.down.lon) {
+                const downIcon = createPickaxeIcon(false);
+                const downMarker = L.marker([currentData.down.lat, currentData.down.lon], {
+                    icon: downIcon,
+                    zIndexOffset: 500
+                }).addTo(map);
+                
+                downMarker.bindPopup(`
+                    <div style="color: #e2e8f0;">
+                        <strong>Shield Face - DOWN</strong><br>
+                        Date: ${formatDate(currentData.date)}<br>
+                        Latitude: ${currentData.down.lat.toFixed(6)}°<br>
+                        Longitude: ${currentData.down.lon.toFixed(6)}°
+                    </div>
+                `);
+                shieldFaceMarkers.push(downMarker);
+            }
+        }
+        
+        // Create markers on map using Canvas layer for performance
+        function createMarkers() {
+            // Remove existing canvas layer if any
+            if (canvasLayer) {
+                map.removeLayer(canvasLayer);
+                canvasLayer = null;
+            }
+            
+            // Remove existing selected markers
+            selectedMarkers.forEach(marker => map.removeLayer(marker));
+            selectedMarkers = [];
+            circles = [];
+            
+            // Prepare points data for canvas layer
+            const points = data.map((point, index) => {
+                const lat = parseFloat(point.Lat_deg);
+                const lon = parseFloat(point.Lon_deg);
+                const currentDate = dates[currentTimeIndex];
+                const pointId = point.ID || `P${String(index + 1).padStart(3, '0')}`;
+                const isSelected = selectedIds.includes(pointId);
+                
+                // Check if data exists for current date (non-interpolation: hide if no data)
+                const displacementValue = point[currentDate];
+                const hasData = displacementValue !== undefined && displacementValue !== null && displacementValue !== '';
+                const displacement = hasData ? parseFloat(displacementValue) : 0;
+                
+                // Determine shape type based on data source type
+                const shapeType = point.type === 'Survey' ? 'rectangle' : 'circle';
+                
+                return {
+                    lat: lat,
+                    lon: lon,
+                    index: index,
+                    pointData: point,
+                    radius: getSize(displacement),
+                    fillColor: getColor(displacement),
+                    strokeColor: isSelected ? getTimeSeriesColor(selectedIds.indexOf(pointId)) : '#333',
+                    strokeWidth: isSelected ? 3 : 1,
+                    shapeType: shapeType,
+                    hidden: !hasData // Hide point if no data for current date
+                };
+            });
+            
+            // Create canvas layer
+            canvasLayer = canvasMarkerLayer({
+                pane: 'overlayPane'
+            });
+            canvasLayer.setPoints(points);
+            canvasLayer.addTo(map);
+            
+            // Create overlay markers for selected points (small number, so DOM is fine)
+            updateSelectedMarkers();
+        }
+        
+        // Create rectangle marker icon
+        function createRectangleMarkerIcon(size, fillColor, borderColor, borderWidth) {
+            const html = `
+                <div style="
+                    width: ${size * 2}px;
+                    height: ${size * 2}px;
+                    background-color: ${fillColor};
+                    border: ${borderWidth}px solid ${borderColor};
+                    border-radius: 2px;
+                    opacity: 0.7;
+                    box-shadow: 0 0 4px rgba(0,0,0,0.3);
+                "></div>
+            `;
+            
+            return L.divIcon({
+                html: html,
+                className: 'rectangle-marker',
+                iconSize: [size * 2, size * 2],
+                iconAnchor: [size, size]
+            });
+        }
+        
+        // Update overlay markers for selected points
+        function updateSelectedMarkers() {
+            // Remove existing selected markers
+            selectedMarkers.forEach(marker => map.removeLayer(marker));
+            selectedMarkers = [];
+            circles = [];
+            
+            // Create markers for selected points
+            selectedIds.forEach((pointId, selectedIndex) => {
+                const pointIndex = data.findIndex(p => p.ID === pointId);
+                if (pointIndex === -1) return;
+                
+                const point = data[pointIndex];
+                const lat = parseFloat(point.Lat_deg);
+                const lon = parseFloat(point.Lon_deg);
+                const currentDate = dates[currentTimeIndex];
+                
+                // Check if data exists for current date
+                const displacementValue = point[currentDate];
+                const hasData = displacementValue !== undefined && displacementValue !== null && displacementValue !== '';
+                if (!hasData) return; // Skip if no data for current date
+                
+                const displacement = parseFloat(displacementValue);
+                const fillColor = getColor(displacement);
+                const baseSize = getSize(displacement);
+                const selectedSize = baseSize * 1.5;
+                const borderColor = getTimeSeriesColor(selectedIndex);
+                const shapeType = point.type === 'Survey' ? 'rectangle' : 'circle';
+                
+                let marker;
+                if (shapeType === 'rectangle') {
+                    // Create rectangle marker using DivIcon
+                    const icon = createRectangleMarkerIcon(selectedSize, fillColor, borderColor, 3);
+                    marker = L.marker([lat, lon], { icon: icon }).addTo(map);
+                } else {
+                    // Create circle marker for SAR data
+                    marker = L.circleMarker([lat, lon], {
+                        radius: selectedSize,
+                        fillColor: fillColor,
+                        color: borderColor,
+                        weight: 3,
+                        opacity: 1,
+                        fillOpacity: 0.7
+                    }).addTo(map);
+                }
+                
+                // Store point data
+                marker.pointIndex = pointIndex;
+                marker.pointData = point;
+                
+                // Add click event to toggle selection
+                marker.on('click', function() {
+                    removeSelectedId(pointId);
+                });
+                
+                // Add hover events
+                marker.on('mouseover', function() {
+                    highlightPoint(pointId);
+                });
+                
+                marker.on('mouseout', function() {
+                    unhighlightPoint(pointId);
+                });
+                
+                selectedMarkers.push(marker);
+                circles[pointIndex] = marker;
+            });
+            
+            // Redraw canvas layer to hide selected points
+            if (canvasLayer) {
+                updateCanvasLayerPoints();
+            }
+        }
+        
+        // Update canvas layer points data
+        function updateCanvasLayerPoints() {
+            if (!canvasLayer) return;
+            
+            const points = data.map((point, index) => {
+                const lat = parseFloat(point.Lat_deg);
+                const lon = parseFloat(point.Lon_deg);
+                const currentDate = dates[currentTimeIndex];
+                const pointId = point.ID || `P${String(index + 1).padStart(3, '0')}`;
+                const isSelected = selectedIds.includes(pointId);
+                
+                // Check if data exists for current date (non-interpolation: hide if no data)
+                const displacementValue = point[currentDate];
+                const hasData = displacementValue !== undefined && displacementValue !== null && displacementValue !== '';
+                const displacement = hasData ? parseFloat(displacementValue) : 0;
+                
+                // Determine shape type based on data source type
+                const shapeType = point.type === 'Survey' ? 'rectangle' : 'circle';
+                
+                return {
+                    lat: lat,
+                    lon: lon,
+                    index: index,
+                    pointData: point,
+                    radius: getSize(displacement),
+                    fillColor: getColor(displacement),
+                    strokeColor: isSelected ? getTimeSeriesColor(selectedIds.indexOf(pointId)) : '#333',
+                    strokeWidth: isSelected ? 3 : 1,
+                    shapeType: shapeType,
+                    hidden: !hasData // Hide point if no data for current date
+                };
+            });
+            
+            canvasLayer.setPoints(points);
+        }
+        
+        // Track currently hovered point ID for chart highlighting
+        let currentlyHoveredPointId = null;
+        
+        // Clear point details (on hover out)
+        function clearPointDetails(forceReset = false) {
+            // Clear hover point details
+            if (forceReset || !lastSelectedPointId) {
+                document.getElementById('hover-point-details').innerHTML = `
+                    <p class="text-slate-400 font-light">Hover over a point on the map to see details</p>
+                `;
+            } else {
+                renderPointDetails(lastSelectedPointId);
+            }
+            
+            // Clear hover chart (show selected points chart if any)
+            if (selectedIds.length > 0) {
+                updateTimeSeriesChartForSelectedIds();
+            } else {
+                // Clear chart if no selected points
+                Plotly.newPlot('time-series-chart', [], {
+                    plot_bgcolor: 'rgba(30, 41, 59, 0.3)',
+                    paper_bgcolor: 'transparent',
+                    title: { text: 'Time Series Displacement Chart', font: { size: 14, color: '#e2e8f0' } },
+                    xaxis: { 
+                        title: { text: 'Date', font: { color: '#cbd5e1' } },
+                        tickfont: { color: '#94a3b8', size: 10 },
+                        gridcolor: 'rgba(148, 163, 184, 0.2)',
+                        linecolor: 'rgba(148, 163, 184, 0.3)'
+                    },
+                    yaxis: { 
+                        title: { text: 'Displacement (mm)', font: { color: '#cbd5e1' } },
+                        tickfont: { color: '#94a3b8', size: 10 },
+                        gridcolor: 'rgba(148, 163, 184, 0.2)',
+                        linecolor: 'rgba(148, 163, 184, 0.3)'
+                    }
+                }, {responsive: true});
+            }
+            
+            // If a Selected Point was highlighted, use unhighlightPoint to restore everything
+            if (currentlyHoveredPointId && selectedIds.includes(currentlyHoveredPointId)) {
+                // Directly call unhighlightPoint which handles both map markers and chart
+                unhighlightPoint(currentlyHoveredPointId);
+            } else if (currentlyHoveredPointId) {
+                // Clear canvas layer hover state for non-selected points
+                if (canvasLayer) {
+                    canvasLayer.setHoveredIndex(null);
+                }
+            }
+            
+            currentlyHoveredPointId = null;
+            hoveredPointIndex = null;
+        }
+        
+        // Show point details (for hover)
+        function renderPointDetails(pointId) {
+            const pointIndex = data.findIndex(p => p.ID === pointId);
+            if (pointIndex === -1) return;
+            const point = data[pointIndex];
+            const currentDate = dates[currentTimeIndex];
+            const currentDisp = parseFloat(point[currentDate] || 0);
+            const dispR = parseFloat(point.DispR_mmyr || 0);
+            const totalDisp = parseFloat(point.Disp_mm || 0);
+            const dataSource = point.type || 'Unknown';
+
+            document.getElementById('hover-point-details').innerHTML = `
+                <div class="space-y-4" style="color: #e2e8f0;">
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">ID:</span> <span style="color: #e2e8f0; letter-spacing: 0.3px;">${pointId}</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Data Source:</span> <span style="color: #e2e8f0;">${dataSource}</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Latitude:</span> <span style="color: #e2e8f0;">${point.Lat_deg}°</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Longitude:</span> <span style="color: #e2e8f0;">${point.Lon_deg}°</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Current Displacement:</span> <span style="color: ${currentDisp > 0 ? '#dc2626' : '#2563eb'}; font-weight: 300;">${currentDisp.toFixed(2)} mm</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Annual Rate:</span> <span style="color: #e2e8f0;">${dispR.toFixed(2)} mm/year</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Total Displacement:</span> <span style="color: #e2e8f0;">${totalDisp.toFixed(2)} mm</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Date:</span> <span style="color: #e2e8f0;">${formatDate(currentDate)}</span></div>
+                </div>
+            `;
+        }
+
+        // Show point details (for hover)
+        function showPointDetails(index) {
+            const point = data[index];
+            
+            // Update selected info
+            const currentDate = dates[currentTimeIndex];
+            const currentDisp = parseFloat(point[currentDate] || 0);
+            const dispR = parseFloat(point.DispR_mmyr || 0);
+            const totalDisp = parseFloat(point.Disp_mm || 0);
+            const pointId = point.ID || `P${String(index + 1).padStart(3, '0')}`;
+            
+            // Track currently hovered point
+            const wasHoveringSelectedPoint = currentlyHoveredPointId && selectedIds.includes(currentlyHoveredPointId);
+            currentlyHoveredPointId = pointId;
+            
+            // Update hover point details
+            renderPointDetails(pointId);
+            
+            // Show hover chart for this point
+            showHoverChart(pointId, index);
+            
+            // Highlight the circle on map
+            if (circles[index]) {
+                const marker = circles[index];
+                const point = data[index];
+                const currentDate = dates[currentTimeIndex];
+                const displacement = parseFloat(point[currentDate] || 0);
+                const fillColor = getColor(displacement);
+                const baseSize = getSize(displacement);
+                const isSelected = selectedIds.includes(pointId);
+                
+                if (isSelected) {
+                    // Selected marker: make it stand out more
+                    const selectedIndex = selectedIds.indexOf(pointId);
+                    const borderColor = getTimeSeriesColor(selectedIndex);
+                    const selectedSize = baseSize * 1.5;
+                    
+                    marker.setRadius(selectedSize);
+                    marker.setStyle({
+                        fillColor: fillColor,
+                        color: borderColor,
+                        weight: 4,
+                        opacity: 1,
+                        fillOpacity: 0.7
+                    });
+                } else {
+                    // Non-selected marker: highlight with orange border
+                    marker.setStyle({
+                        weight: 3,
+                        color: '#eab308',
+                        opacity: 1,
+                        fillOpacity: 0.7
+                    });
+                }
+            } else if (canvasLayer) {
+                // Highlight on canvas layer
+                canvasLayer.setHoveredIndex(index);
+            }
+        }
+        
+        // Show hover chart for a single point (with Selected Points if any)
+        function showHoverChart(pointId, pointIndex) {
+            // Use all dates (time slider steps) as X-axis
+            const formattedDates = dates.map(formatDate);
+            const traces = [];
+            
+            // Helper function to create trace with independent plotting
+            const createTrace = (point, id, color, index, isHovered = false, isSelectedPoint = false) => {
+                const pointType = point.type || 'SAR';
+                
+                // Use fixed X-axis (all dates), set null for dates without data (non-interpolation)
+                const yData = dates.map(date => {
+                    const value = point[date];
+                    // Check if data exists (not undefined, null, or empty string)
+                    if (value !== undefined && value !== null && value !== '') {
+                        return parseFloat(value);
+                    }
+                    return null; // null for missing data - Plotly will skip these points
+                });
+                
+                const markerSymbol = pointType === 'Survey' ? 'square' : 'circle';
+                
+                return {
+                    x: formattedDates, // Fixed X-axis for all traces
+                    y: yData, // yData may contain null values for missing dates
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    name: isSelectedPoint ? `${id} (${pointType})` : id,
+                    line: {
+                        color: isHovered ? color : (isSelectedPoint ? hexToRgba(color, 0.5) : color),
+                        width: isHovered ? 4 : 2
+                    },
+                    marker: {
+                        size: isHovered ? 10 : 6,
+                        color: isHovered ? color : (isSelectedPoint ? hexToRgba(color, 0.5) : color),
+                        symbol: markerSymbol
+                    },
+                    opacity: isHovered ? 1.0 : (isSelectedPoint ? 0.5 : 1.0),
+                    hovertemplate: `<b>${id}</b><br>Date: %{x}<br>Displacement: %{y:.2f} mm<extra></extra>`,
+                    connectgaps: true // Connect points across null values (draw line between existing data points)
+                };
+            };
+            
+            // If there are Selected Points, show all of them
+            if (selectedIds.length > 0) {
+                // Add all Selected Points traces
+                selectedIds.forEach((id, index) => {
+                    const idxPointIndex = data.findIndex(p => p.ID === id);
+                    if (idxPointIndex === -1) return;
+                    
+                    const point = data[idxPointIndex];
+                    const color = getTimeSeriesColor(index);
+                    const isHovered = id === pointId;
+                    
+                    traces.push(createTrace(point, id, color, index, isHovered, true));
+                });
+                
+                // If hovered point is not in Selected Points, add it as well
+                if (!selectedIds.includes(pointId)) {
+                    const point = data[pointIndex];
+                    traces.push(createTrace(point, pointId, '#06b6d4', -1, true, false));
+                }
+            } else {
+                // No Selected Points, show only hovered point
+                const point = data[pointIndex];
+                traces.push(createTrace(point, pointId, '#06b6d4', -1, true, false));
+            }
+            
+            // Calculate min and max for y-axis range (exclude null values)
+            let minY = Infinity;
+            let maxY = -Infinity;
+            traces.forEach(trace => {
+                const validValues = trace.y.filter(v => v !== null && !isNaN(v));
+                if (validValues.length > 0) {
+                    const traceMin = Math.min(...validValues);
+                    const traceMax = Math.max(...validValues);
+                    minY = Math.min(minY, traceMin);
+                    maxY = Math.max(maxY, traceMax);
+                }
+            });
+            
+            const layout = {
+                plot_bgcolor: 'rgba(30, 41, 59, 0.3)',
+                paper_bgcolor: 'transparent',
+                title: {
+                    text: selectedIds.length > 0 
+                        ? (selectedIds.length === 1 
+                            ? `Point ${selectedIds[0]} Time Series`
+                            : `${selectedIds.length} Points Comparison`)
+                        : `Point ${pointId} Time Series`,
+                    font: { size: 14, color: '#e2e8f0' }
+                },
+                xaxis: {
+                    title: { text: 'Date', font: { color: '#cbd5e1' } },
+                    tickangle: -45,
+                    tickfont: { color: '#94a3b8', size: 10 },
+                    gridcolor: 'rgba(148, 163, 184, 0.2)',
+                    linecolor: 'rgba(148, 163, 184, 0.3)'
+                },
+                yaxis: {
+                    title: { text: 'Displacement (mm)', font: { color: '#cbd5e1' } },
+                    range: [minY - 0.5, maxY + 0.5],
+                    tickfont: { color: '#94a3b8', size: 10 },
+                    gridcolor: 'rgba(148, 163, 184, 0.2)',
+                    linecolor: 'rgba(148, 163, 184, 0.3)'
+                },
+                hovermode: 'closest',
+                margin: { t: 25, r: 100, b: 60, l: 60 }, // Reduced top margin, increased right margin for legend overlap
+                legend: selectedIds.length > 0 ? {
+                    x: 0.98, // Slightly overlap with chart area
+                    y: 1,
+                    bgcolor: 'rgba(30, 41, 59, 0.8)',
+                    bordercolor: 'rgba(148, 163, 184, 0.3)',
+                    borderwidth: 1,
+                    font: { color: '#e2e8f0', size: 11 }
+                } : undefined,
+                shapes: [{
+                    type: 'line',
+                    x0: formattedDates[currentTimeIndex],
+                    x1: formattedDates[currentTimeIndex],
+                    y0: minY - 0.5,
+                    y1: maxY + 0.5,
+                    line: {
+                        color: '#eab308',
+                        width: 2,
+                        dash: 'dash'
+                    }
+                }]
+            };
+            
+            Plotly.newPlot('time-series-chart', traces, layout, {responsive: true});
+        }
+        
+        // Select a point (for click - adds to Selected Points)
+        function selectPoint(index) {
+            selectedPoint = index;
+            const point = data[index];
+            
+            // Update selected info
+            const currentDate = dates[currentTimeIndex];
+            const currentDisp = parseFloat(point[currentDate] || 0);
+            const dispR = parseFloat(point.DispR_mmyr || 0);
+            const totalDisp = parseFloat(point.Disp_mm || 0);
+            const pointId = point.ID || `P${String(index + 1).padStart(3, '0')}`;
+            
+            document.getElementById('selected-info').innerHTML = `
+                <div class="space-y-4" style="color: #e2e8f0;">
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">ID:</span> <span style="color: #e2e8f0; letter-spacing: 0.3px;">${pointId}</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Latitude:</span> <span style="color: #e2e8f0;">${point.Lat_deg}°</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Longitude:</span> <span style="color: #e2e8f0;">${point.Lon_deg}°</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Current Displacement:</span> <span style="color: ${currentDisp > 0 ? '#dc2626' : '#2563eb'}; font-weight: 300;">${currentDisp.toFixed(2)} mm</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Annual Rate:</span> <span style="color: #e2e8f0;">${dispR.toFixed(2)} mm/year</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Total Displacement:</span> <span style="color: #e2e8f0;">${totalDisp.toFixed(2)} mm</span></div>
+                    <div style="font-weight: 300;"><span style="color: #94a3b8; font-weight: 300;">Date:</span> <span style="color: #e2e8f0;">${formatDate(currentDate)}</span></div>
+                </div>
+            `;
+            
+            // Update time series chart
+            updateTimeSeriesChart(index);
+            
+            // Highlight selected circle
+            circles.forEach((circle, i) => {
+                if (i === index) {
+                    circle.setStyle({
+                        weight: 3,
+                        color: '#fbbf24'
+                    });
+                } else {
+                    circle.setStyle({
+                        weight: 1,
+                        color: '#333'
+                    });
+                }
+            });
+        }
+        
+        // Format date (YYYYMMDD to YY/MM/DD)
+        function formatDate(dateStr) {
+            if (!dateStr) return '-';
+            const year = dateStr.substring(2, 4); // Last 2 digits of year
+            const month = dateStr.substring(4, 6);
+            const day = dateStr.substring(6, 8);
+            return `${year}/${month}/${day}`;
+        }
+        
+        // Initialize time slider
+        function initializeTimeSlider() {
+            const slider = document.getElementById('time-slider');
+            const prevButton = document.getElementById('time-slider-prev');
+            const nextButton = document.getElementById('time-slider-next');
+            
+            slider.max = dates.length - 1;
+            slider.value = dates.length - 1;
+            currentTimeIndex = dates.length - 1;
+            
+            // Function to update slider and map
+            function updateSliderValue(newIndex) {
+                if (newIndex < 0) newIndex = 0;
+                if (newIndex >= dates.length) newIndex = dates.length - 1;
+                
+                currentTimeIndex = newIndex;
+                slider.value = newIndex;
+                updateMapForTime();
+                updateCurrentDate();
+                
+                // Update selected point info if one is selected
+                if (selectedPoint !== null) {
+                    selectPoint(selectedPoint);
+                }
+            }
+            
+            // Slider input event
+            slider.addEventListener('input', function(e) {
+                updateSliderValue(parseInt(e.target.value));
+            });
+            
+            // Previous button click event
+            prevButton.addEventListener('click', function() {
+                updateSliderValue(currentTimeIndex - 1);
+            });
+            
+            // Next button click event
+            nextButton.addEventListener('click', function() {
+                updateSliderValue(currentTimeIndex + 1);
+            });
+            
+            updateCurrentDate();
+        }
+        
+        // Update current date display
+        function updateCurrentDate() {
+            const currentDateStr = dates[currentTimeIndex] || '';
+            const startDateStr = dates[0] || '';
+            const endDateStr = dates[dates.length - 1] || '';
+            
+            document.getElementById('current-date').textContent = `Now: ${formatDate(currentDateStr)}`;
+            document.getElementById('start-date').textContent = `Start: ${formatDate(startDateStr)}`;
+            document.getElementById('end-date').textContent = `End: ${formatDate(endDateStr)}`;
+        }
+        
+        // Create ranking icon (crown with background circle) for top/bottom displacement points
+        function createRankingIcon(rank, isPositive, displacement) {
+            const crownSize = 16; // Half size (was 32)
+            const circleRadius = 12; // Background circle radius (smaller to match smaller crown)
+            const iconSize = circleRadius * 2 + 8; // Total size with padding
+            
+            // Crown colors: gold, silver, bronze
+            const crownColors = {
+                1: '#FFD700', // Gold
+                2: '#C0C0C0', // Silver
+                3: '#CD7F32'  // Bronze
+            };
+            
+            const crownColor = crownColors[rank] || '#C0C0C0';
+            
+            // Background circle colors: light red for positive, light blue for negative
+            const bgColor = isPositive ? 'rgba(220, 38, 38, 0.4)' : 'rgba(37, 99, 235, 0.4)'; // Semi-transparent
+            
+            // Create crown SVG
+            const crownSvg = `
+                <svg width="${crownSize}" height="${crownSize}" viewBox="0 0 24 24" fill="none" stroke="${crownColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z"></path>
+                    <path d="M12 18v4"></path>
+                    <path d="M8 22h8"></path>
+                </svg>
+            `;
+            
+            const html = `
+                <div style="position: relative; width: ${iconSize}px; height: ${iconSize}px; display: flex; align-items: center; justify-content: center; pointer-events: auto; cursor: pointer;">
+                    <!-- Background circle with glossy effect -->
+                    <div class="ranking-circle-bg" style="
+                        position: absolute;
+                        width: ${circleRadius * 2}px;
+                        height: ${circleRadius * 2}px;
+                        border-radius: 50%;
+                        background: ${bgColor};
+                        background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.3), ${bgColor});
+                        box-shadow: 
+                            0 4px 8px rgba(0,0,0,0.3),
+                            inset 0 2px 4px rgba(255,255,255,0.2),
+                            inset 0 -2px 4px rgba(0,0,0,0.1);
+                        border: 1px solid rgba(255,255,255,0.2);
+                        pointer-events: auto;
+                    "></div>
+                    <!-- Crown icon -->
+                    <div style="position: relative; z-index: 1; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5)); pointer-events: auto;">
+                        ${crownSvg}
+                    </div>
+                </div>
+            `;
+            
+            // Calculate offset to position icon above the circle
+            // Move further up so displacement circle can be clicked
+            const baseCircleRadius = 5;
+            const spacing = 12; // Increased spacing to move crown higher
+            const verticalOffset = baseCircleRadius + spacing;
+            
+            const icon = L.divIcon({
+                html: html,
+                className: 'ranking-icon',
+                iconSize: [iconSize, iconSize],
+                iconAnchor: [iconSize / 2, iconSize / 2 + verticalOffset] // Anchor at center, offset to appear above circle
+            });
+            
+            return icon;
+        }
+        
+        // Create ranking popup content
+        function createRankingPopup(rank, isPositive, displacement, pointId, lat, lon) {
+            const rankLabels = {
+                1: '1st',
+                2: '2nd',
+                3: '3rd'
+            };
+            
+            const rankColors = {
+                1: '#FFD700', // Gold
+                2: '#C0C0C0', // Silver
+                3: '#CD7F32'  // Bronze
+            };
+            
+            const displacementType = isPositive ? 'Subsidence' : 'Uplift';
+            const displacementColor = isPositive ? 'text-red-400' : 'text-blue-400';
+            const rankColor = rankColors[rank];
+            
+            return `
+                <div class="bg-slate-800/95 backdrop-blur-sm rounded-lg border border-slate-600/50 shadow-xl p-4 min-w-[200px]">
+                    <div class="flex items-center gap-2 mb-3 pb-2 border-b border-slate-600/50">
+                        <div class="text-lg font-semibold" style="color: ${rankColor};">${rankLabels[rank]} Place</div>
+                        <div class="text-xs text-slate-400 font-light">Ranking</div>
+                    </div>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between items-center">
+                            <span class="text-slate-400 font-light">Point ID:</span>
+                            <span class="text-slate-200 font-medium">${pointId}</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-slate-400 font-light">Displacement:</span>
+                            <span class="${displacementColor} font-semibold">${displacement > 0 ? '+' : ''}${displacement.toFixed(2)} mm</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-slate-400 font-light">Type:</span>
+                            <span class="${displacementColor} font-medium">${displacementType}</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-slate-400 font-light">Latitude:</span>
+                            <span class="text-slate-200 font-light">${lat.toFixed(6)}°</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-slate-400 font-light">Longitude:</span>
+                            <span class="text-slate-200 font-light">${lon.toFixed(6)}°</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Update ranking markers for top/bottom displacement points
+        function updateRankingMarkers() {
+            // Remove existing ranking markers
+            rankingMarkers.forEach(marker => {
+                if (marker._popup) {
+                    marker.closePopup();
+                }
+                map.removeLayer(marker);
+            });
+            rankingMarkers = [];
+            
+            if (!data.length || !dates.length) return;
+            
+            const currentDate = dates[currentTimeIndex];
+            
+            // Calculate displacement for all points and sort
+            const pointsWithDisplacement = data.map((point, index) => ({
+                point: point,
+                index: index,
+                displacement: parseFloat(point[currentDate] || 0)
+            })).filter(item => !isNaN(item.displacement));
+            
+            // Sort by displacement: positive (subsidence) descending, negative (uplift) ascending
+            const sortedByPositive = [...pointsWithDisplacement]
+                .filter(item => item.displacement > 0)
+                .sort((a, b) => b.displacement - a.displacement)
+                .slice(0, 3);
+            
+            const sortedByNegative = [...pointsWithDisplacement]
+                .filter(item => item.displacement < 0)
+                .sort((a, b) => a.displacement - b.displacement)
+                .slice(0, 3);
+            
+            // Create markers for top 3 positive (subsidence - red)
+            sortedByPositive.forEach((item, idx) => {
+                const rank = idx + 1;
+                const lat = parseFloat(item.point.Lat_deg);
+                const lon = parseFloat(item.point.Lon_deg);
+                const pointId = item.point.ID || `P${String(item.index + 1).padStart(3, '0')}`;
+                const icon = createRankingIcon(rank, true, item.displacement);
+                const marker = L.marker([lat, lon], { icon: icon, zIndexOffset: 1000 });
+                
+                // Create popup content
+                const popupContent = createRankingPopup(rank, true, item.displacement, pointId, lat, lon);
+                const popup = L.popup({
+                    className: 'ranking-popup',
+                    offset: [0, -10],
+                    closeButton: false,
+                    autoClose: false,
+                    closeOnClick: false
+                }).setContent(popupContent);
+                
+                // Add hover events
+                marker.on('mouseover', function() {
+                    marker.bindPopup(popup).openPopup();
+                });
+                
+                marker.on('mouseout', function() {
+                    marker.closePopup();
+                });
+                
+                marker.addTo(map);
+                rankingMarkers.push(marker);
+            });
+            
+            // Create markers for top 3 negative (uplift - blue)
+            sortedByNegative.forEach((item, idx) => {
+                const rank = idx + 1;
+                const lat = parseFloat(item.point.Lat_deg);
+                const lon = parseFloat(item.point.Lon_deg);
+                const pointId = item.point.ID || `P${String(item.index + 1).padStart(3, '0')}`;
+                const icon = createRankingIcon(rank, false, item.displacement);
+                const marker = L.marker([lat, lon], { icon: icon, zIndexOffset: 1000 });
+                
+                // Create popup content
+                const popupContent = createRankingPopup(rank, false, item.displacement, pointId, lat, lon);
+                const popup = L.popup({
+                    className: 'ranking-popup',
+                    offset: [0, -10],
+                    closeButton: false,
+                    autoClose: false,
+                    closeOnClick: false
+                }).setContent(popupContent);
+                
+                // Add hover events
+                marker.on('mouseover', function() {
+                    marker.bindPopup(popup).openPopup();
+                });
+                
+                marker.on('mouseout', function() {
+                    marker.closePopup();
+                });
+                
+                marker.addTo(map);
+                rankingMarkers.push(marker);
+            });
+        }
+        
+        // Update map for current time
+        function updateMapForTime() {
+            // Calculate current time range (for display only, color map uses global range)
+            calculateDisplacementRange();
+            
+            // Update canvas layer with new displacement values
+            updateCanvasLayerPoints();
+            
+            // Update selected markers (recreate them to handle rectangle markers properly)
+            updateSelectedMarkers();
+            
+            // Update ranking markers
+            updateRankingMarkers();
+            
+            // Update shield face markers (position changes with time)
+            updateShieldFaceMarkers();
+            
+            // Update selected ID list to reflect current displacement values
+            updateSelectedIdList();
+            // Update time series chart
+            updateTimeSeriesChartForSelectedIds();
+        }
+        
+        // Update time series chart for selected IDs
+        function updateTimeSeriesChartForSelectedIds() {
+            if (selectedIds.length === 0) {
+                // Clear chart if no IDs selected
+                Plotly.newPlot('time-series-chart', [], {
+                    plot_bgcolor: 'rgba(30, 41, 59, 0.3)',
+                    paper_bgcolor: 'transparent',
+                    title: { text: 'Time Series Displacement Chart', font: { size: 14, color: '#e2e8f0' } },
+                    xaxis: { 
+                        title: { text: 'Date', font: { color: '#cbd5e1' } },
+                        tickfont: { color: '#94a3b8', size: 10 },
+                        gridcolor: 'rgba(148, 163, 184, 0.2)',
+                        linecolor: 'rgba(148, 163, 184, 0.3)'
+                    },
+                    yaxis: { 
+                        title: { text: 'Displacement (mm)', font: { color: '#cbd5e1' } },
+                        tickfont: { color: '#94a3b8', size: 10 },
+                        gridcolor: 'rgba(148, 163, 184, 0.2)',
+                        linecolor: 'rgba(148, 163, 184, 0.3)'
+                    }
+                }, {responsive: true});
+                return;
+            }
+            
+            // Use all dates (time slider steps) as X-axis - FIXED
+            const formattedDates = dates.map(formatDate);
+            
+            // Create traces for each selected ID (independent plotting: use fixed X-axis, null for missing data)
+            const traces = selectedIds.map((id, index) => {
+                const pointIndex = data.findIndex(p => p.ID === id);
+                if (pointIndex === -1) return null;
+                
+                const point = data[pointIndex];
+                const pointType = point.type || 'SAR';
+                
+                // Use fixed X-axis (all dates), set null for dates without data (non-interpolation)
+                const yData = dates.map(date => {
+                    const value = point[date];
+                    // Check if data exists (not undefined, null, or empty string)
+                    if (value !== undefined && value !== null && value !== '') {
+                        return parseFloat(value);
+                    }
+                    return null; // null for missing data - Plotly will skip these points
+                });
+                
+                const color = getTimeSeriesColor(index);
+                const markerSymbol = pointType === 'Survey' ? 'square' : 'circle';
+                
+                return {
+                    x: formattedDates, // Fixed X-axis for all traces
+                    y: yData, // yData may contain null values for missing dates
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    name: `${id} (${pointType})`,
+                    line: {
+                        color: color,
+                        width: 2
+                    },
+                    marker: {
+                        size: 6,
+                        color: color,
+                        symbol: markerSymbol
+                    },
+                    hovertemplate: `<b>${id}</b><br>Date: %{x}<br>Displacement: %{y:.2f} mm<extra></extra>`,
+                    connectgaps: true // Connect points across null values (draw line between existing data points)
+                };
+            }).filter(trace => trace !== null);
+            
+            // Calculate min and max for y-axis range (exclude null values)
+            let minY = Infinity;
+            let maxY = -Infinity;
+            traces.forEach(trace => {
+                const validValues = trace.y.filter(v => v !== null && !isNaN(v));
+                if (validValues.length > 0) {
+                    const traceMin = Math.min(...validValues);
+                    const traceMax = Math.max(...validValues);
+                    minY = Math.min(minY, traceMin);
+                    maxY = Math.max(maxY, traceMax);
+                }
+            });
+            
+            const layout = {
+                plot_bgcolor: 'rgba(30, 41, 59, 0.3)',
+                paper_bgcolor: 'transparent',
+                title: {
+                    text: selectedIds.length === 1 
+                        ? `Point ${selectedIds[0]} Time Series`
+                        : `${selectedIds.length} Points Comparison`,
+                    font: { size: 14, color: '#e2e8f0' }
+                },
+                xaxis: {
+                    title: { text: 'Date', font: { color: '#cbd5e1' } },
+                    tickangle: -45,
+                    tickfont: { color: '#94a3b8', size: 10 },
+                    gridcolor: 'rgba(148, 163, 184, 0.2)',
+                    linecolor: 'rgba(148, 163, 184, 0.3)'
+                },
+                yaxis: {
+                    title: { text: 'Displacement (mm)', font: { color: '#cbd5e1' } },
+                    range: [minY - 0.5, maxY + 0.5],
+                    tickfont: { color: '#94a3b8', size: 10 },
+                    gridcolor: 'rgba(148, 163, 184, 0.2)',
+                    linecolor: 'rgba(148, 163, 184, 0.3)'
+                },
+                hovermode: 'closest',
+                margin: { t: 25, r: 100, b: 60, l: 60 }, // Reduced top margin, increased right margin for legend overlap
+                legend: {
+                    x: 0.98, // Slightly overlap with chart area
+                    y: 1,
+                    bgcolor: 'rgba(30, 41, 59, 0.8)',
+                    bordercolor: 'rgba(148, 163, 184, 0.3)',
+                    borderwidth: 1,
+                    font: { color: '#e2e8f0', size: 11 }
+                },
+                shapes: [{
+                    type: 'line',
+                    x0: formattedDates[currentTimeIndex],
+                    x1: formattedDates[currentTimeIndex],
+                    y0: minY - 0.5,
+                    y1: maxY + 0.5,
+                    line: {
+                        color: '#fbbf24',
+                        width: 2,
+                        dash: 'dash'
+                    }
+                }]
+            };
+            
+            Plotly.newPlot('time-series-chart', traces, layout, {responsive: true});
+        }
+        
+        // Update time series chart (legacy function for single point selection)
+        function updateTimeSeriesChart(pointIndex) {
+            if (pointIndex === null || pointIndex === undefined) return;
+            
+            // If this point is in selectedIds, update all selected
+            const point = data[pointIndex];
+            const pointId = point.ID || `P${String(pointIndex + 1).padStart(3, '0')}`;
+            
+            if (selectedIds.includes(pointId)) {
+                lastSelectedPointId = pointId;
+                updateTimeSeriesChartForSelectedIds();
+                renderPointDetails(pointId);
+            } else {
+                // Add to selected and update
+                addSelectedId(pointId, pointIndex);
+            }
+        }
+        
+        // Initialize on load
+        window.addEventListener('DOMContentLoaded', function() {
+            // Initialize theme toggle
+            initThemeToggle();
+            
+            // Load data
+            loadData();
+        });
+    </script>
+</body>
+</html>
